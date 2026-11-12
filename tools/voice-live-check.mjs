@@ -1,0 +1,55 @@
+// Live voice check of the native engine against the LiveKit project in
+// .env.local (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET).
+//
+//   node native-desktop/tools/voice-live-check.mjs
+//
+// Mints two 3-minute tokens for a new throwaway room ("katsodi-native-
+// check-<random>", never a real Katsodi room name), runs the tst_voice_live
+// executable with them in its environment and prints its report. Secrets
+// and tokens are never printed or written to disk.
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { AccessToken } from "livekit-server-sdk";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const env = Object.fromEntries(
+  readFileSync(path.join(root, ".env.local"), "utf8")
+    .split(/\r?\n/)
+    .filter((line) => /^[A-Z_]+=/.test(line))
+    .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1).trim()]),
+);
+const { LIVEKIT_URL: url, LIVEKIT_API_KEY: key, LIVEKIT_API_SECRET: secret } = env;
+if (!url?.startsWith("wss://") || !key || !secret) {
+  console.error("LIVEKIT_URL (wss://), LIVEKIT_API_KEY and LIVEKIT_API_SECRET are needed in .env.local.");
+  process.exit(1);
+}
+const room = `katsodi-native-check-${randomBytes(6).toString("hex")}`;
+async function token(identity) {
+  const access = new AccessToken(key, secret, { identity, ttl: 180 });
+  access.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canPublishData: false });
+  return access.toJwt();
+}
+const exe = path.join(root, "native-desktop/build/windows-dev/tst_voice_live.exe");
+const qt = path.resolve(root, "../KatsodiToolchain/Qt/6.11.3/msvc2022_64/bin");
+console.log(`room ${room} on ${new URL(url).host}`);
+const report = path.join(process.env.TEMP || root, `katsodi-voice-live-${process.pid}.txt`);
+const result = spawnSync(exe, ["-o", `${report},txt`], {
+  stdio: "inherit",
+  env: {
+    ...process.env,
+    PATH: `${qt};${process.env.PATH}`,
+    KATSODI_LK_URL: url,
+    KATSODI_LK_TOKEN_A: await token("native-check-a"),
+    KATSODI_LK_TOKEN_B: await token("native-check-b"),
+  },
+});
+if (result.error) console.error(result.error.message);
+try {
+  console.log(readFileSync(report, "utf8"));
+} catch {
+  console.error("no test report was written");
+}
+process.exit(result.status ?? 1);

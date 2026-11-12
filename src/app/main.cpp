@@ -11,6 +11,10 @@
 #include "presentation/RoomListModel.h"
 #include "presentation/Strings.h"
 #include "presentation/ThemeController.h"
+#include "presentation/VoiceController.h"
+#ifdef KATSODI_WITH_LIVEKIT
+#include "media/livekit/LiveKitVoiceEngine.h"
+#endif
 
 #include <QDesktopServices>
 #include <QDir>
@@ -126,6 +130,12 @@ int main(int argc, char *argv[])
     FandomModel fandoms(artwork);
     RoomListModel rooms(&api);
     RoomController room(&api, &session, &preferences);
+#ifdef KATSODI_WITH_LIVEKIT
+    LiveKitVoiceEngine voiceEngine;
+#else
+    NullVoiceEngine voiceEngine;
+#endif
+    VoiceController voice(&api, &room, &voiceEngine);
     Links links;
 
     QGuiApplication::setFont(QFont(theme.fontFamily(), 10));
@@ -137,6 +147,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Fandoms", &fandoms);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Rooms", &rooms);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Room", &room);
+    qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Voice", &voice);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Links", &links);
     qmlRegisterUncreatableType<ChatModel>("Katsodi.App", 1, 0, "ChatModel", QStringLiteral("owned by Room"));
 
@@ -163,6 +174,8 @@ int main(int argc, char *argv[])
     });
     QObject::connect(&app, &QGuiApplication::aboutToQuit, [&] {
         // Quitting ends the room's polling and pings with the process.
+        // Quitting ends the call first: microphone and speakers are released.
+        voice.leave();
         room.close();
         const bool maximized = window->windowStates() & Qt::WindowMaximized;
         if (!maximized)

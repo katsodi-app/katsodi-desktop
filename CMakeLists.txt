@@ -16,6 +16,17 @@ set_property(CACHE KATSODI_CHANNEL PROPERTY STRINGS development production)
 set(KATSODI_PRODUCTION_ORIGIN "https://katsodi.watch")
 
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Test)
+
+# Voice: the official LiveKit C++ SDK, prebuilt (tools/install-livekit.py).
+# Without it the client still builds and shows voice as unavailable.
+find_package(LiveKit 1.13 CONFIG QUIET PATHS "$ENV{KATSODI_LIVEKIT_DIR}" NO_DEFAULT_PATH)
+# The SDK ships a Release DLL only and passes std::string across its API, so
+# the client links against the release C runtime (Debug is refused).
+set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
+if(LiveKit_FOUND AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+  message(FATAL_ERROR "With LiveKit use RelWithDebInfo or Release (the SDK uses the release CRT).")
+endif()
+message(STATUS "LiveKit voice: ${LiveKit_FOUND}")
 qt_standard_project_setup(REQUIRES 6.11)
 
 execute_process(
@@ -52,7 +63,15 @@ qt_add_library(katsodi_core STATIC
   src/presentation/RoomListModel.h src/presentation/RoomListModel.cpp
   src/presentation/ChatModel.h src/presentation/ChatModel.cpp
   src/presentation/RoomController.h src/presentation/RoomController.cpp
+  src/presentation/VoiceController.h src/presentation/VoiceController.cpp
+  src/media/VoiceEngine.h
 )
+if(LiveKit_FOUND)
+  target_sources(katsodi_core PRIVATE
+    src/media/livekit/LiveKitVoiceEngine.h src/media/livekit/LiveKitVoiceEngine.cpp)
+  target_link_libraries(katsodi_core PUBLIC LiveKit::livekit)
+  target_compile_definitions(katsodi_core PUBLIC KATSODI_WITH_LIVEKIT=1)
+endif()
 target_include_directories(katsodi_core PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(katsodi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml)
 if(WIN32)
@@ -72,6 +91,22 @@ qt_add_resources(katsodi_core "katsodi_data"
     resources/icons/logo.svg
 )
 katsodi_warnings(katsodi_core)
+
+# --- Tests ----------------------------------------------------------------
+enable_testing()
+qt_add_executable(tst_core tests/unit/tst_core.cpp)
+target_link_libraries(tst_core PRIVATE katsodi_core Qt6::Test)
+katsodi_warnings(tst_core)
+set_target_properties(tst_core PROPERTIES WIN32_EXECUTABLE FALSE)
+add_test(NAME core COMMAND tst_core)
+if(LiveKit_FOUND)
+  # Live check against a real LiveKit server; run tools/voice-live-check.mjs.
+  qt_add_executable(tst_voice_live tests/live/tst_voice_live.cpp)
+  target_link_libraries(tst_voice_live PRIVATE katsodi_core Qt6::Test)
+  set_target_properties(tst_voice_live PROPERTIES WIN32_EXECUTABLE FALSE)
+  katsodi_warnings(tst_voice_live)
+endif()
+set_tests_properties(core PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # --- Application ----------------------------------------------------------
 qt_add_executable(katsodi WIN32 src/app/main.cpp src/app/katsodi.rc)
@@ -96,6 +131,7 @@ qt_add_qml_module(katsodi
     qml/screens/FandomsScreen.qml
     qml/screens/SettingsScreen.qml
     qml/screens/SignInScreen.qml
+    qml/screens/VoicePanel.qml
 )
 target_link_libraries(katsodi PRIVATE katsodi_core Qt6::Quick Qt6::QuickControls2)
 katsodi_warnings(katsodi)
@@ -113,6 +149,22 @@ foreach(index RANGE ${KATSODI_FANDOM_LAST})
     list(APPEND KATSODI_ARTWORK "${CMAKE_CURRENT_SOURCE_DIR}/../public/images/fandoms/${art_file}")
   endif()
 endforeach()
+if(LiveKit_FOUND)
+  # livekit.dll and livekit_ffi.dll next to the executable, plus the licence.
+  get_target_property(KATSODI_LIVEKIT_DLL LiveKit::livekit IMPORTED_LOCATION_RELEASE)
+  get_filename_component(KATSODI_LIVEKIT_BIN "${KATSODI_LIVEKIT_DLL}" DIRECTORY)
+  get_filename_component(KATSODI_LIVEKIT_ROOT "${KATSODI_LIVEKIT_BIN}" DIRECTORY)
+  set(KATSODI_LIVEKIT_DLLS "${KATSODI_LIVEKIT_BIN}/livekit.dll" "${KATSODI_LIVEKIT_BIN}/livekit_ffi.dll")
+  add_custom_command(TARGET katsodi POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KATSODI_LIVEKIT_DLLS} $<TARGET_FILE_DIR:katsodi>
+    VERBATIM)
+  add_custom_command(TARGET tst_core POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KATSODI_LIVEKIT_DLLS} $<TARGET_FILE_DIR:tst_core>
+    VERBATIM)
+  install(FILES ${KATSODI_LIVEKIT_DLLS} DESTINATION bin)
+  install(FILES "${KATSODI_LIVEKIT_ROOT}/LICENSE" DESTINATION licenses RENAME LiveKit-SDK-LICENSE.txt)
+endif()
+
 add_custom_command(TARGET katsodi POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:katsodi>/artwork/fandoms
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KATSODI_ARTWORK} $<TARGET_FILE_DIR:katsodi>/artwork/fandoms
@@ -133,10 +185,3 @@ qt_generate_deploy_qml_app_script(
 )
 install(SCRIPT ${KATSODI_DEPLOY_SCRIPT})
 
-# --- Tests ----------------------------------------------------------------
-enable_testing()
-qt_add_executable(tst_core tests/unit/tst_core.cpp)
-target_link_libraries(tst_core PRIVATE katsodi_core Qt6::Test)
-katsodi_warnings(tst_core)
-add_test(NAME core COMMAND tst_core)
-set_tests_properties(core PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

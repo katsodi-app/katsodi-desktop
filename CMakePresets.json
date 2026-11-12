@@ -1,24 +1,32 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 27, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 27,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "windows-base",
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
       "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "$env{KATSODI_QT_DIR}",
+        "CMAKE_PREFIX_PATH": "$env{KATSODI_QT_DIR};$env{KATSODI_LIVEKIT_DIR}",
         "CMAKE_CXX_COMPILER": "cl"
       }
     },
     {
       "name": "windows-dev",
-      "displayName": "Windows development (Debug, loopback API)",
+      "displayName": "Windows development (RelWithDebInfo, loopback API)",
       "inherits": "windows-base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "KATSODI_CHANNEL": "development"
       }
     },
@@ -33,19 +41,29 @@
     }
   ],
   "buildPresets": [
-    { "name": "windows-dev", "configurePreset": "windows-dev" },
-    { "name": "windows-release", "configurePreset": "windows-release" }
+    {
+      "name": "windows-dev",
+      "configurePreset": "windows-dev"
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release"
+    }
   ],
   "testPresets": [
     {
       "name": "windows-dev",
       "configurePreset": "windows-dev",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-release",
       "configurePreset": "windows-release",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }

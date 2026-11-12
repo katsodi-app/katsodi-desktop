@@ -35,6 +35,10 @@ cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
 }
 $env:PATH = "$tools;$qt\bin;$env:PATH"
 $env:KATSODI_QT_DIR = $qt
+# Optional voice SDK (python native-desktop/tools/install-livekit.py <toolchain>).
+$livekit = Join-Path $toolchain "livekit/1.13.1/livekit-sdk-windows-x64-1.13.1"
+if (Test-Path (Join-Path $livekit "lib/cmake/LiveKit")) { $env:KATSODI_LIVEKIT_DIR = $livekit; $env:PATH = "$livekit/bin;$env:PATH" }
+else { Write-Warning "LiveKit SDK not found: building without voice." }
 
 Push-Location $source
 try {

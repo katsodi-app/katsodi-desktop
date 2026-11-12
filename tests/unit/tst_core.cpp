@@ -1,4 +1,5 @@
 #include "application/Session.h"
+#include "infrastructure/credentials/CredentialStore.h"
 #include "domain/Records.h"
 #include "domain/Text.h"
 #include "presentation/ChatModel.h"
@@ -7,18 +8,77 @@
 #include "presentation/RoomListModel.h"
 #include "presentation/Strings.h"
 #include "presentation/ThemeController.h"
+#include "presentation/VoiceController.h"
+#include "presentation/RoomController.h"
 #include "infrastructure/api/ApiClient.h"
 
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSignalSpy>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTest>
 
 using namespace katsodi;
 
 namespace {
+/** Records what the controller asks of the media engine. */
+class FakeVoiceEngine final : public VoiceEngine {
+public:
+    using VoiceEngine::VoiceEngine;
+    bool available() const override { return true; }
+    void connectCall(quint64 generation, const QString &, const QString &) override { connects << generation; }
+    void setMicrophone(bool on) override { microphone << on; emit microphoneChanged(on); }
+    void setDeafened(bool on) override { deafened << on; }
+    void disconnectCall() override { ++disconnects; }
+    void refreshDevices() override {}
+    void setInputDevice(const QString &) override {}
+    void setOutputDevice(const QString &) override {}
+    QList<quint64> connects;
+    QList<bool> microphone, deafened;
+    int disconnects = 0;
+};
+
+/** Minimal HTTP server: voice tokens, room snapshots and pings. */
+class TokenServer : public QObject {
+public:
+    TokenServer()
+    {
+        m_server.listen(QHostAddress::LocalHost);
+        connect(&m_server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = m_server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
+                    const QByteArray request = socket->readAll();
+                    if (!request.contains("/voice-token")) {
+                        respond(socket, 200, request.contains("/occupancy") ? QByteArray("{}") : snapshot);
+                        return;
+                    }
+                    ++requests;
+                    respond(socket, status, status == 200
+                        ? QByteArray(R"({"url":"wss://test.livekit.cloud","token":"t"})")
+                        : QByteArray(R"({"error":{"code":"access_denied","messageKey":"native.errorAccess","retryable":false,"requestId":"x"}})"));
+                });
+                connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+            }
+        });
+    }
+    static void respond(QTcpSocket *socket, int code, const QByteArray &body)
+    {
+        socket->write("HTTP/1.1 " + QByteArray::number(code) + " X\r\nContent-Type: application/json\r\nContent-Length: "
+                      + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
+        socket->disconnectFromHost();
+    }
+    QUrl origin() const { return QUrl(QStringLiteral("http://127.0.0.1:%1").arg(m_server.serverPort())); }
+    int requests = 0;
+    int status = 200;
+    QByteArray snapshot;
+
+private:
+    QTcpServer m_server;
+};
+
 const QString room1 = QStringLiteral("20000000-0000-4000-8000-000000000001");
 const QString user1 = QStringLiteral("10000000-0000-4000-8000-000000000001");
 
@@ -39,6 +99,15 @@ MessageRecord message(int n, const QString &sender = user1)
     m.kind = QStringLiteral("text");
     m.createdAt = QDateTime(QDate(2026, 11, 12), QTime(10, n), QTimeZone::UTC);
     return m;
+}
+
+/** A snapshot in which the viewer is a joined member. */
+QByteArray joinedSnapshot()
+{
+    return QJsonDocument(QJsonObject{{"room", roomJson()}, {"joined", true},
+                                     {"members", QJsonArray{QJsonObject{{"user_id", user1}, {"role", "member"}, {"status", "active"}}}},
+                                     {"profiles", QJsonArray{}}, {"messages", QJsonArray{}}})
+        .toJson(QJsonDocument::Compact);
 }
 
 QStringList ids(const ChatModel &model)
@@ -225,6 +294,80 @@ private slots:
         QVERIFY(Session::acceptableAuthUrl(QUrl("http://127.0.0.1:54321"), true));
         QVERIFY(!Session::acceptableAuthUrl(QUrl("https://user:pw@project.supabase.co"), false));
         QVERIFY(!Session::acceptableAuthUrl(QUrl("https://project.supabase.co/?x=1"), false));
+    }
+
+    void voiceFollowsTheWebsiteRules()
+    {
+        TokenServer server;
+        ApiClient api(server.origin());
+        Session session(&api, CredentialStore(QStringLiteral("Katsodi Test/session")));
+        Preferences preferences(QStringLiteral("Katsodi Test"));
+        RoomController room(&api, &session, &preferences);
+        FakeVoiceEngine engine;
+        VoiceController voice(&api, &room, &engine);
+
+        // Not in the room yet: no token is requested.
+        voice.join();
+        QCOMPARE(voice.errorKey(), QStringLiteral("voiceJoinRoom"));
+        QCOMPARE(server.requests, 0);
+
+        server.snapshot = joinedSnapshot();
+        room.open(room1);
+        QTRY_VERIFY(room.joined());
+        voice.join();
+        QCOMPARE(voice.state(), QStringLiteral("joining"));
+        QTRY_COMPARE(engine.connects.size(), 1);
+        QCOMPARE(server.requests, 1);
+        emit engine.connected(engine.connects.last());
+        QCOMPARE(voice.state(), QStringLiteral("connected"));
+        QVERIFY(!voice.microphone()); // listen first, as on the website
+
+        voice.toggleMicrophone();
+        QVERIFY(voice.microphone());
+        voice.toggleDeafen(); // deafen also turns the microphone off...
+        QVERIFY(voice.deafened());
+        QCOMPARE(engine.microphone, (QList<bool>{true, false}));
+        QCOMPARE(engine.deafened, (QList<bool>{true}));
+        voice.toggleMicrophone(); // ...and it cannot be turned on while deafened
+        QCOMPARE(engine.microphone.size(), 2);
+        voice.toggleDeafen(); // ...and comes back afterwards
+        QCOMPARE(engine.microphone, (QList<bool>{true, false, true}));
+        QVERIFY(!voice.deafened());
+
+        // A network drop: retried with a fresh token after 2 s, microphone off.
+        emit engine.ended(engine.connects.last(), VoiceEngine::Ended::Network);
+        QCOMPARE(voice.state(), QStringLiteral("reconnecting"));
+        QVERIFY(!voice.microphone());
+        QTRY_COMPARE_WITH_TIMEOUT(engine.connects.size(), 2, 4000);
+        QCOMPARE(server.requests, 2);
+        emit engine.connected(engine.connects.first()); // stale attempt: ignored
+        QCOMPARE(voice.state(), QStringLiteral("reconnecting"));
+        emit engine.connected(engine.connects.last());
+        QCOMPARE(voice.state(), QStringLiteral("connected"));
+
+        // Removed by the server: no retry.
+        emit engine.ended(engine.connects.last(), VoiceEngine::Ended::Removed);
+        QCOMPARE(voice.state(), QStringLiteral("idle"));
+        QCOMPARE(voice.errorKey(), QStringLiteral("voiceDisconnected"));
+        QTest::qWait(2500);
+        QCOMPARE(engine.connects.size(), 2);
+
+        // A refused token stops at once and never reaches the engine.
+        server.status = 403;
+        voice.join();
+        QTRY_COMPARE(voice.state(), QStringLiteral("idle"));
+        QCOMPARE(voice.errorKey(), QStringLiteral("voiceAccess"));
+        QCOMPARE(engine.connects.size(), 2);
+
+        // Leaving the room ends the call.
+        server.status = 200;
+        voice.join();
+        QTRY_COMPARE(engine.connects.size(), 3);
+        emit engine.connected(engine.connects.last());
+        const int before = engine.disconnects;
+        room.close();
+        QCOMPARE(voice.state(), QStringLiteral("idle"));
+        QVERIFY(engine.disconnects > before);
     }
 
     void apiRefusesForeignPaths()

@@ -176,6 +176,8 @@ Item {
                     anchors.margins: 14
                     spacing: 10
 
+                    VoicePanel { Layout.fillWidth: true }
+
                     TabBar {
                         id: tabs
                         Layout.fillWidth: true
