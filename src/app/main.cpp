@@ -46,14 +46,14 @@ QUrl apiOrigin()
     if (!build::development)
         return QUrl(QString::fromLatin1(build::productionOrigin));
     const QString value = qEnvironmentVariable("KATSODI_API_ORIGIN");
-    const QUrl url(value.isEmpty() ? QStringLiteral("http://127.0.0.1:3000") : value);
+    const QUrl url(value.isEmpty() ? QStringLiteral("http://127.0.0.1:8787") : value);
     const bool loopback = url.host() == QLatin1StringView("127.0.0.1") || url.host() == QLatin1StringView("localhost");
     if (url.isValid() && (url.scheme() == QLatin1StringView("http") || url.scheme() == QLatin1StringView("https"))
         && loopback && url.userInfo().isEmpty() && (url.path().isEmpty() || url.path() == QLatin1StringView("/"))
         && !url.hasQuery())
         return url.adjusted(QUrl::RemovePath);
-    qWarning("KATSODI_API_ORIGIN must be a loopback origin; using http://127.0.0.1:3000");
-    return QUrl(QStringLiteral("http://127.0.0.1:3000"));
+    qWarning("KATSODI_API_ORIGIN must be a loopback origin; using http://127.0.0.1:8787");
+    return QUrl(QStringLiteral("http://127.0.0.1:8787"));
 }
 
 /** Opens only http(s) addresses in the system browser. */

@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # development: API origin from KATSODI_API_ORIGIN (loopback only), default
-#              http://127.0.0.1:3000, separate settings and credentials.
+#              http://127.0.0.1:8787, separate settings and credentials.
 # production:  the fixed origin below; nothing at runtime can change it.
 set(KATSODI_CHANNEL "development" CACHE STRING "development or production")
 set_property(CACHE KATSODI_CHANNEL PROPERTY STRINGS development production)
