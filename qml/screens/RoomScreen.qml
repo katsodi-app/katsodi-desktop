@@ -15,6 +15,19 @@ Item {
     signal navigate(string name, string id)
     readonly property bool narrow: width < 980
     readonly property int side: width < 760 ? 20 : 40
+    property string stageMode: Room.demoStatus === "live" || Room.demoStatus === "paused" ? "demo" : "player"
+    Connections {
+        target: Room
+        function onStateChanged() {
+            const running = Room.demoStatus === "live" || Room.demoStatus === "paused"
+            if (running && screen.lastDemo === "")
+                screen.stageMode = "demo"
+            else if (Room.demoStatus === "" && screen.lastDemo !== "")
+                screen.stageMode = "player"
+            screen.lastDemo = Room.demoStatus
+        }
+    }
+    property string lastDemo: Room.demoStatus
 
     Component.onCompleted: if (roomId && Room.roomId !== roomId.toLowerCase()) Room.open(roomId)
     onRoomIdChanged: if (roomId && Room.roomId !== roomId.toLowerCase()) Room.open(roomId)
@@ -140,210 +153,230 @@ Item {
                     anchors.margins: 22
                     spacing: 16
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 14
-                        Rectangle {
-                            implicitWidth: 64; implicitHeight: 64; radius: 16
-                            color: Theme.c.selected
-                            Icon { anchors.centerIn: parent; size: 28; name: Room.format === "music" ? "music" : "video"; color: Theme.c.accent }
-                        }
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 3
-                            Text {
-                                text: I18n.s.stageSource.toUpperCase()
-                                color: K.muted
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 10
-                                font.weight: Font.Bold
-                                font.letterSpacing: 1.4
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: Room.source ? Links.host(Room.source) : I18n.s.stageNoSource
-                                color: K.text
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 20
-                                font.weight: Font.Bold
-                                elide: Text.ElideMiddle
-                            }
-                            // Shared timeline from the server (synchronized sources).
-                            RowLayout {
-                                spacing: 8
-                                visible: Room.source !== ""
-                                Rectangle {
-                                    width: 8; height: 8; radius: 4
-                                    color: Room.playback === "playing" ? Theme.c.success : K.muted
-                                    SequentialAnimation on opacity {
-                                        running: Room.playback === "playing" && !K.still
-                                        loops: Animation.Infinite
-                                        NumberAnimation { to: 0.3; duration: 900 }
-                                        NumberAnimation { to: 1; duration: 900 }
-                                    }
-                                }
-                                Text {
-                                    id: timeline
-                                    property real base: Room.playbackPosition
-                                    property real ticks: 0
-                                    text: Room.playback === "playing" ? I18n.s.playbackPlaying + "  ·  " + screen.clock(base + ticks)
-                                          : Room.playback === "paused" ? I18n.s.playbackPaused + "  ·  " + screen.clock(base)
-                                          : I18n.s.playbackNone
-                                    color: K.muted
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    onBaseChanged: ticks = 0
-                                    // One tick per second, only while playing and visible.
-                                    Timer {
-                                        interval: 1000
-                                        repeat: true
-                                        running: Room.playback === "playing" && screen.visible
-                                        onTriggered: timeline.ticks += 1
-                                    }
-                                }
-                            }
-                        }
-                        KButton {
-                            visible: Room.source !== "" && stage.width >= 620
-                            kind: "ghost"; small: true
-                            iconName: "link"
-                            text: I18n.s.stageOpenSource
-                            onClicked: Links.openExternal(Room.source)
-                        }
-                        IconButton {
-                            visible: Room.source !== "" && stage.width < 620
-                            iconName: "link"
-                            tip: I18n.s.stageOpenSource
-                            onClicked: Links.openExternal(Room.source)
-                        }
-                    }
-                    DemoPanel {
-                        Layout.fillWidth: true
-                        visible: Room.joined && !Room.closed && Demo.available
-                    }
-                    PlayerStage {
-                        Layout.fillWidth: true
-                        visible: Room.syncKind !== "" && Player.available
-                        maxVideoHeight: Math.max(180, stage.height * 0.55)
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        visible: Room.source !== "" && !(Room.syncKind !== "" && Player.available)
-                        text: Room.syncKind === "" ? I18n.s.playerOpenOutside : I18n.s.playerUnavailable
-                        color: K.muted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        wrapMode: Text.WordWrap
+                    // Player or demo, one at a time, as on the website.
+                    Segmented {
+                        visible: Demo.available && Room.joined && !Room.closed
+                        model: [{ value: "player", label: I18n.s.stagePlayer },
+                                { value: "demo", label: I18n.s.stageDemo + (Room.demoStatus !== "" ? "  •" : "") }]
+                        current: screen.stageMode
+                        onSelected: (value) => screen.stageMode = value
+                        Accessible.name: I18n.s.stageSwitch
                     }
 
-                    Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: K.stroke }
-
-                    SectionTitle {
-                        Layout.fillWidth: true
-                        iconName: "queue"
-                        title: I18n.s.queueTitle + (Room.queue.length ? " · " + Room.queue.length : "")
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        visible: Room.joined && !Room.closed
-                        spacing: 8
-                        KTextField {
-                            id: queueField
-                            Layout.fillWidth: true
-                            iconName: "link"
-                            placeholderText: I18n.s.queuePlaceholder
-                            maximumLength: 2048
-                            onAccepted: if (Room.addToQueue(text)) queueField.clear()
-                        }
-                        KButton {
-                            text: Room.queueing ? I18n.s.loading : I18n.s.queueAdd
-                            enabled: !Room.queueing && queueField.text.trim().length > 0
-                            onClicked: if (Room.addToQueue(queueField.text)) queueField.clear()
-                        }
-                    }
-                    ListView {
-                        id: queueList
+                    ColumnLayout {
+                        id: playerPane
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.minimumHeight: 60
-                        clip: true
-                        spacing: 4
-                        model: Room.queue
-                        boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: ScrollBar {}
-                        delegate: Rectangle {
-                            required property var modelData
-                            required property int index
-                            width: queueList.width - 6
-                            height: 48
-                            radius: 12
-                            color: rowHover.hovered ? K.glassHover : "transparent"
-                            HoverHandler { id: rowHover }
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: 12
-                                anchors.rightMargin: 12
-                                spacing: 12
+                        visible: screen.stageMode === "player"
+                        spacing: 16
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 14
+                            Rectangle {
+                                implicitWidth: 64; implicitHeight: 64; radius: 16
+                                color: Theme.c.selected
+                                Icon { anchors.centerIn: parent; size: 28; name: Room.format === "music" ? "music" : "video"; color: Theme.c.accent }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 3
                                 Text {
-                                    text: index + 1
+                                    text: I18n.s.stageSource.toUpperCase()
                                     color: K.muted
-                                    font.family: Theme.displayFamily
-                                    font.pixelSize: 16
-                                    Layout.preferredWidth: 22
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 10
+                                    font.weight: Font.Bold
+                                    font.letterSpacing: 1.4
                                 }
-                                ColumnLayout {
+                                Text {
                                     Layout.fillWidth: true
-                                    spacing: 0
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: modelData.host || modelData.url
-                                        color: K.text
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: 13
-                                        font.weight: Font.DemiBold
-                                        elide: Text.ElideRight
+                                    text: Room.source ? Links.host(Room.source) : I18n.s.stageNoSource
+                                    color: K.text
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 20
+                                    font.weight: Font.Bold
+                                    elide: Text.ElideMiddle
+                                }
+                                // Shared timeline from the server (synchronized sources).
+                                RowLayout {
+                                    spacing: 8
+                                    visible: Room.source !== ""
+                                    Rectangle {
+                                        width: 8; height: 8; radius: 4
+                                        color: Room.playback === "playing" ? Theme.c.success : K.muted
+                                        SequentialAnimation on opacity {
+                                            running: Room.playback === "playing" && !K.still
+                                            loops: Animation.Infinite
+                                            NumberAnimation { to: 0.3; duration: 900 }
+                                            NumberAnimation { to: 1; duration: 900 }
+                                        }
                                     }
                                     Text {
+                                        id: timeline
+                                        property real base: Room.playbackPosition
+                                        property real ticks: 0
+                                        text: Room.playback === "playing" ? I18n.s.playbackPlaying + "  ·  " + screen.clock(base + ticks)
+                                              : Room.playback === "paused" ? I18n.s.playbackPaused + "  ·  " + screen.clock(base)
+                                              : I18n.s.playbackNone
+                                        color: K.muted
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        onBaseChanged: ticks = 0
+                                        // One tick per second, only while playing and visible.
+                                        Timer {
+                                            interval: 1000
+                                            repeat: true
+                                            running: Room.playback === "playing" && screen.visible
+                                            onTriggered: timeline.ticks += 1
+                                        }
+                                    }
+                                }
+                            }
+                            KButton {
+                                visible: Room.source !== "" && stage.width >= 620
+                                kind: "ghost"; small: true
+                                iconName: "link"
+                                text: I18n.s.stageOpenSource
+                                onClicked: Links.openExternal(Room.source)
+                            }
+                            IconButton {
+                                visible: Room.source !== "" && stage.width < 620
+                                iconName: "link"
+                                tip: I18n.s.stageOpenSource
+                                onClicked: Links.openExternal(Room.source)
+                            }
+                        }
+                        PlayerStage {
+                            Layout.fillWidth: true
+                            visible: Room.syncKind !== "" && Player.available
+                            maxVideoHeight: Math.max(180, stage.height * 0.5)
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: Room.source !== "" && !(Room.syncKind !== "" && Player.available)
+                            text: Room.syncKind === "" ? I18n.s.playerOpenOutside : I18n.s.playerUnavailable
+                            color: K.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: K.stroke }
+
+                        SectionTitle {
+                            Layout.fillWidth: true
+                            iconName: "queue"
+                            title: I18n.s.queueTitle + (Room.queue.length ? " · " + Room.queue.length : "")
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: Room.joined && !Room.closed
+                            spacing: 8
+                            KTextField {
+                                id: queueField
+                                Layout.fillWidth: true
+                                iconName: "link"
+                                placeholderText: I18n.s.queuePlaceholder
+                                maximumLength: 2048
+                                onAccepted: if (Room.addToQueue(text)) queueField.clear()
+                            }
+                            KButton {
+                                text: Room.queueing ? I18n.s.loading : I18n.s.queueAdd
+                                enabled: !Room.queueing && queueField.text.trim().length > 0
+                                onClicked: if (Room.addToQueue(queueField.text)) queueField.clear()
+                            }
+                        }
+                        ListView {
+                            id: queueList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            Layout.minimumHeight: 60
+                            clip: true
+                            spacing: 4
+                            model: Room.queue
+                            boundsBehavior: Flickable.StopAtBounds
+                            ScrollBar.vertical: ScrollBar {}
+                            delegate: Rectangle {
+                                required property var modelData
+                                required property int index
+                                width: queueList.width - 6
+                                height: 48
+                                radius: 12
+                                color: rowHover.hovered ? K.glassHover : "transparent"
+                                HoverHandler { id: rowHover }
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 12
+                                    anchors.rightMargin: 12
+                                    spacing: 12
+                                    Text {
+                                        text: index + 1
+                                        color: K.muted
+                                        font.family: Theme.displayFamily
+                                        font.pixelSize: 16
+                                        Layout.preferredWidth: 22
+                                    }
+                                    ColumnLayout {
                                         Layout.fillWidth: true
-                                        text: modelData.url
+                                        spacing: 0
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: modelData.host || modelData.url
+                                            color: K.text
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 13
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: modelData.url
+                                            color: K.muted
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: 11
+                                            elide: Text.ElideMiddle
+                                        }
+                                    }
+                                    Text {
+                                        visible: (modelData.addedBy || "") !== ""
+                                        text: modelData.addedBy || ""
                                         color: K.muted
                                         font.family: Theme.fontFamily
                                         font.pixelSize: 11
-                                        elide: Text.ElideMiddle
+                                    }
+                                    IconButton {
+                                        visible: Room.canControl
+                                        diameter: 32
+                                        iconName: "play"
+                                        tip: I18n.s.queuePlayNow
+                                        enabled: !Room.queueing
+                                        onClicked: Room.playFromQueue(modelData.id)
+                                    }
+                                    IconButton {
+                                        visible: modelData.mine || Room.canControl
+                                        diameter: 32
+                                        iconName: "trash"
+                                        tip: I18n.s.queueRemove
+                                        enabled: !Room.queueing
+                                        onClicked: Room.removeFromQueue(modelData.id)
                                     }
                                 }
-                                Text {
-                                    visible: (modelData.addedBy || "") !== ""
-                                    text: modelData.addedBy || ""
-                                    color: K.muted
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 11
-                                }
-                                IconButton {
-                                    visible: Room.canControl
-                                    diameter: 32
-                                    iconName: "play"
-                                    tip: I18n.s.queuePlayNow
-                                    enabled: !Room.queueing
-                                    onClicked: Room.playFromQueue(modelData.id)
-                                }
-                                IconButton {
-                                    visible: modelData.mine || Room.canControl
-                                    diameter: 32
-                                    iconName: "trash"
-                                    tip: I18n.s.queueRemove
-                                    enabled: !Room.queueing
-                                    onClicked: Room.removeFromQueue(modelData.id)
-                                }
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                visible: queueList.count === 0
+                                text: I18n.s.queueEmpty
+                                color: K.muted
+                                font.family: Theme.fontFamily
                             }
                         }
-                        Text {
-                            anchors.centerIn: parent
-                            visible: queueList.count === 0
-                            text: I18n.s.queueEmpty
-                            color: K.muted
-                            font.family: Theme.fontFamily
-                        }
+                    }
+
+                    DemoPanel {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: screen.stageMode === "demo" && Room.joined && !Room.closed && Demo.available
                     }
                 }
             }

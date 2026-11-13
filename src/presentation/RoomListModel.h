@@ -42,6 +42,8 @@ public:
     Q_INVOKABLE void createShared(const QVariantMap &input);
     /** A loaded room by id as a map for QML, or empty. */
     Q_INVOKABLE QVariantMap room(const QString &id) const;
+    /** The loaded rooms of one fandom, as room() maps (at most 60). */
+    Q_INVOKABLE QVariantList roomsOfFandom(const QString &fandomId) const;
     const std::vector<RoomRecord> &all() const { return m_all; }
     /** Applies a response body (public for tests). */
     void apply(const QJsonObject &body);

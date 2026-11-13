@@ -1,8 +1,5 @@
-Backdrop photographs (Unsplash License, https://unsplash.com/license),
-the same images as the Katsodi overview page (public/images/editorial):
-
-space-1600.webp   Scott Lord   https://unsplash.com/photos/a-galaxy-surrounded-by-stars-in-space-Rw7H7ELqJS4
-forest-1600.webp  Joshua Tsu   https://unsplash.com/photos/a-lake-surrounded-by-mountains-in-the-middle-of-a-forest-ifHBo0TTuBI
-
 Fandom posters: sources and licences are listed on the Katsodi credits page
 (/credits) and in src/data/fandom-posters.json of the repository.
+
+The window backdrop is drawn by the application (shaders/backdrop.frag);
+it contains no photographs.

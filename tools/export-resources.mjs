@@ -113,6 +113,9 @@ export async function exportFandoms() {
   const { fandoms } = await load("src/lib/fandoms.ts");
   const posters = JSON.parse(await readFile(path.join(root, "src/data/fandom-posters.json"), "utf8"));
   const byId = new Map(posters.map((poster) => [poster.fandomId, poster]));
+  // The same Wikipedia excerpts the website's fandom pages quote (CC BY-SA).
+  const information = JSON.parse(await readFile(path.join(root, "src/data/fandom-information.json"), "utf8"));
+  const wikipedia = /^https:\/\/(ru|en)\.wikipedia\.org\/wiki\/[^\s]+$/;
   return fandoms.map((fandom) => {
     const poster = byId.get(fandom.id);
     let art = null;
@@ -124,7 +127,21 @@ export async function exportFandoms() {
         throw new Error(`fandom ${fandom.id}: poster ${file} is missing`);
       art = { file, width: poster.width, height: poster.height };
     }
-    return { id: fandom.id, name: fandom.name, category: fandom.category, art };
+    const info = information[fandom.id];
+    const about = {};
+    for (const locale of ["ru", "en"]) {
+      const summary = info?.summary?.[locale]?.trim();
+      const source = info?.sources?.[locale];
+      if (summary && typeof source === "string" && wikipedia.test(source))
+        about[locale] = { summary, source };
+    }
+    return {
+      id: fandom.id,
+      name: fandom.name,
+      category: fandom.category,
+      art,
+      ...(Object.keys(about).length ? { about, checked: info.checked } : {}),
+    };
   });
 }
 

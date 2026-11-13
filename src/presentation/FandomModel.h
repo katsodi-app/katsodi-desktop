@@ -2,6 +2,7 @@
 #include <QAbstractListModel>
 #include <QString>
 #include <QUrl>
+#include <QVariantMap>
 #include <vector>
 
 namespace katsodi {
@@ -33,6 +34,12 @@ public:
     Q_INVOKABLE QString nameOf(const QString &id) const;
     /** Artwork path relative to the artwork folder ("fandoms/x.webp"), or "". */
     Q_INVOKABLE QString artOf(const QString &id) const;
+    /**
+     * One fandom for its page: { id, name, category, art, summary, source,
+     * checked } in the given locale, falling back to English. Empty when
+     * the id is unknown. The summary is a Wikipedia excerpt (CC BY-SA).
+     */
+    Q_INVOKABLE QVariantMap info(const QString &id, const QString &locale) const;
 
     bool load(const QByteArray &json);
 
@@ -42,6 +49,7 @@ signals:
 public:
     struct Fandom {
         QString id, name, category, art, initials;
+        QString summaryRu, summaryEn, sourceRu, sourceEn, checked;
         int width = 0, height = 0;
     };
     const std::vector<Fandom> &all() const { return m_all; }

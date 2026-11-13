@@ -10,6 +10,8 @@ ApplicationWindow {
     minimumWidth: 360
     minimumHeight: 480
     visible: false // main.cpp restores geometry, then shows
+    // Our own title bar and resize edges (TitleBar, ResizeFrame).
+    flags: Qt.Window | Qt.FramelessWindowHint
     color: Theme.c.background
     font.family: Theme.fontFamily
 
@@ -60,6 +62,7 @@ ApplicationWindow {
         anchors.fill: parent
         tintA: window.tone[0]
         tintB: window.tone[1]
+        running: window.active && window.visibility !== Window.Minimized && window.visibility !== Window.Hidden
     }
 
     Rail {
@@ -81,6 +84,7 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
+        anchors.topMargin: titleBar.height - 6
         anchors.leftMargin: rail.visible ? 6 : 0
         anchors.bottomMargin: (nowBar.shown ? nowBar.height + 24 : 0) + (window.compact ? 64 : 0)
         Behavior on anchors.bottomMargin { NumberAnimation { duration: K.base; easing.type: K.easing } }
@@ -89,6 +93,7 @@ ApplicationWindow {
             case "rooms": return roomsScreen
             case "room": return roomScreen
             case "fandoms": return fandomsScreen
+            case "fandom": return fandomScreen
             case "library": return libraryScreen
             case "settings": return settingsScreen
             case "signin": return signInScreen
@@ -110,7 +115,16 @@ ApplicationWindow {
 
     Component { id: homeScreen; HomeScreen { onNavigate: (name, id) => window.navigate(name, id); onCreateRequested: create.open() } }
     Component { id: roomsScreen; RoomsScreen { onNavigate: (name, id) => window.navigate(name, id); onCreateRequested: create.open() } }
-    Component { id: fandomsScreen; FandomsScreen {} }
+    Component { id: fandomsScreen; FandomsScreen { onNavigate: (name, id) => window.navigate(name, id) } }
+    Component {
+        id: fandomScreen
+        FandomScreen {
+            fandomId: window.route.id
+            onBack: window.back()
+            onNavigate: (name, id) => window.navigate(name, id)
+            onCreateRequested: create.open()
+        }
+    }
     Component { id: libraryScreen; LibraryScreen { onNavigate: (name, id) => window.navigate(name, id); onCreateRequested: create.open() } }
     Component { id: settingsScreen; SettingsScreen { onNavigate: (name, id) => window.navigate(name, id) } }
     Component { id: signInScreen; SignInScreen { onDone: window.back() } }
@@ -122,6 +136,24 @@ ApplicationWindow {
             onNavigate: (name, id) => window.navigate(name, id)
         }
     }
+
+    TitleBar {
+        id: titleBar
+        window: window
+        anchors.left: rail.visible ? rail.right : parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+    }
+    // A thin outline, since a frameless window has no system border.
+    Rectangle {
+        anchors.fill: parent
+        visible: window.visibility === Window.Windowed
+        color: "transparent"
+        border.width: 1
+        border.color: K.strokeStrong
+        z: 999
+    }
+    ResizeFrame { window: window }
 
     NowBar {
         id: nowBar
@@ -182,7 +214,7 @@ ApplicationWindow {
         id: search
         parent: Overlay.overlay
         onOpenRoom: (id) => window.navigate("room", id)
-        onOpenFandoms: window.navigate("fandoms")
+        onOpenFandom: (id) => window.navigate("fandom", id)
     }
     CreateRoomDialog {
         id: create

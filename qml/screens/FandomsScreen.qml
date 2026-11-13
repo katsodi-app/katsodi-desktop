@@ -7,6 +7,7 @@ import Katsodi.Ui
 // Fandom catalogue: headline, category pills, search, poster grid.
 Scroller {
     id: page
+    signal navigate(string name, string id)
     readonly property int side: width < 760 ? 20 : 48
     contentHeight: column.implicitHeight + 120
     Component.onDestruction: { Fandoms.category = ""; Fandoms.query = "" }
@@ -75,6 +76,7 @@ Scroller {
                 width: grid.cellWidth
                 height: grid.cellHeight
                 FandomCard {
+                    onOpenRequested: (id) => page.navigate("fandom", id)
                     tile: grid.cellWidth - 18
                     order: index
                     fandomId: model.fandomId

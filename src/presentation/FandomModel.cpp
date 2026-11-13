@@ -4,6 +4,7 @@
 
 #include <QFile>
 #include <QJsonArray>
+#include <QUrl>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -42,6 +43,20 @@ bool FandomModel::load(const QByteArray &json)
             fandom.height = art.value(QLatin1StringView("height")).toInt();
         }
         fandom.initials = initials(fandom.name);
+        const QJsonObject about = object.value(QLatin1StringView("about")).toObject();
+        auto take = [&](const char *locale, QString &summary, QString &source) {
+            const QJsonObject entry = about.value(QLatin1StringView(locale)).toObject();
+            const QString text = entry.value(QLatin1StringView("summary")).toString();
+            const QUrl url(entry.value(QLatin1StringView("source")).toString());
+            if (text.isEmpty() || text.size() > 2000 || url.scheme() != QLatin1StringView("https")
+                || !url.host().endsWith(QLatin1StringView(".wikipedia.org")))
+                return;
+            summary = text;
+            source = url.toString();
+        };
+        take("ru", fandom.summaryRu, fandom.sourceRu);
+        take("en", fandom.summaryEn, fandom.sourceEn);
+        fandom.checked = object.value(QLatin1StringView("checked")).toString().left(10);
         loaded.push_back(std::move(fandom));
     }
     beginResetModel();
@@ -132,6 +147,24 @@ QHash<int, QByteArray> FandomModel::roleNames() const
 {
     return {{IdRole, "fandomId"}, {NameRole, "name"}, {CategoryRole, "category"}, {ArtRole, "art"},
             {ArtWidthRole, "artWidth"}, {ArtHeightRole, "artHeight"}, {InitialsRole, "initials"}};
+}
+
+QVariantMap FandomModel::info(const QString &id, const QString &locale) const
+{
+    for (const Fandom &fandom : m_all) {
+        if (fandom.id != id)
+            continue;
+        const bool russian = locale == QLatin1StringView("ru") && !fandom.summaryRu.isEmpty();
+        return {{QStringLiteral("id"), fandom.id},
+                {QStringLiteral("name"), fandom.name},
+                {QStringLiteral("category"), fandom.category},
+                {QStringLiteral("art"), fandom.art.isEmpty() ? QString() : QStringLiteral("fandoms/") + fandom.art},
+                {QStringLiteral("initials"), fandom.initials},
+                {QStringLiteral("summary"), russian ? fandom.summaryRu : fandom.summaryEn},
+                {QStringLiteral("source"), russian ? fandom.sourceRu : fandom.sourceEn},
+                {QStringLiteral("checked"), fandom.checked}};
+    }
+    return {};
 }
 
 } // namespace katsodi

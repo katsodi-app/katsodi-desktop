@@ -183,9 +183,6 @@ int main(int argc, char *argv[])
                             new PosterImageProvider(QCoreApplication::applicationDirPath() + QStringLiteral("/artwork")));
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"), QString::fromLatin1(build::version));
     engine.rootContext()->setContextProperty(QStringLiteral("appChannel"), QString::fromLatin1(build::channel));
-    engine.rootContext()->setContextProperty(
-        QStringLiteral("editorialBase"),
-        QUrl::fromLocalFile(QCoreApplication::applicationDirPath() + QStringLiteral("/artwork/editorial/")));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("Katsodi.Ui", "Main");

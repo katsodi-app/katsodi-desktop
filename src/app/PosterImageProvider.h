@@ -8,8 +8,8 @@ namespace katsodi {
  * "image://poster/<w>x<h>x<r>/<folder>/<file>.webp": a bundled artwork file
  * decoded directly at the requested pixel size (never at full resolution),
  * centre-cropped to fill it and given transparent rounded corners, on a
- * small worker pool. Only files in the application's artwork/fandoms and
- * artwork/editorial folders can be named; anything else yields nothing.
+ * small worker pool. Only files in the application's artwork/fandoms
+ * folder can be named; anything else yields nothing.
  */
 class PosterImageProvider final : public QQuickAsyncImageProvider {
 public:

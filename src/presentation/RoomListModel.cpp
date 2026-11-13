@@ -120,6 +120,21 @@ QVariantMap RoomListModel::room(const QString &id) const
     return {};
 }
 
+QVariantList RoomListModel::roomsOfFandom(const QString &fandomId) const
+{
+    QVariantList out;
+    if (fandomId.isEmpty())
+        return out;
+    for (const RoomRecord &record : m_all) {
+        if (record.fandomId != fandomId)
+            continue;
+        out.append(room(record.id));
+        if (out.size() >= 60)
+            break;
+    }
+    return out;
+}
+
 int RoomListModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : static_cast<int>(m_visible.size());

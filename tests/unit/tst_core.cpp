@@ -440,9 +440,11 @@ private slots:
         QCOMPARE(RoomController::currentDemoStatus(noUser, now), QString());
         QCOMPARE(RoomController::currentDemoStatus({}, now), QString());
         // Published screen sizes stay inside the box and aligned to 4.
-        QCOMPARE(ScreenController::publishedSize({3840, 2160}, false), QSize(1920, 1080));
-        QCOMPARE(ScreenController::publishedSize({1444, 822}, true), QSize(1264, 720));
-        QCOMPARE(ScreenController::publishedSize({}, false), QSize());
+        QCOMPARE(ScreenController::publishedSize({3840, 2160}, 1080), QSize(1920, 1080));
+        QCOMPARE(ScreenController::publishedSize({1444, 822}, 720), QSize(1264, 720));
+        QCOMPARE(ScreenController::publishedSize({}, 1080), QSize());
+        QCOMPARE(ScreenController::bitrateFor(720, 15), 1500000);
+        QCOMPARE(ScreenController::bitrateFor(1080, 30), 4000000);
     }
 
     void playerStaysOffWithoutHelperOrSource()

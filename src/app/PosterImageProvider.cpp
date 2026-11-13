@@ -44,7 +44,7 @@ PosterImageProvider::PosterImageProvider(QString artworkRoot) : m_root(std::move
 bool PosterImageProvider::parse(const QString &id, QSize *size, int *radius, QString *relative)
 {
     static const QRegularExpression pattern(
-        QStringLiteral(R"(^(\d{1,4})x(\d{1,4})x(\d{1,3})/((?:fandoms|editorial)/[a-z0-9-]{1,80}\.webp)$)"));
+        QStringLiteral(R"(^(\d{1,4})x(\d{1,4})x(\d{1,3})/(fandoms/[a-z0-9-]{1,80}\.webp)$)"));
     const auto match = pattern.match(id);
     if (!match.hasMatch())
         return false;

@@ -15,7 +15,7 @@ set(KATSODI_CHANNEL "development" CACHE STRING "development or production")
 set_property(CACHE KATSODI_CHANNEL PROPERTY STRINGS development production)
 set(KATSODI_PRODUCTION_ORIGIN "https://katsodi.watch")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Sql Multimedia Test)
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Sql Multimedia ShaderTools Test)
 
 # Voice: the official LiveKit C++ SDK, prebuilt (tools/install-livekit.py).
 # Without it the client still builds and shows voice as unavailable.
@@ -70,6 +70,7 @@ qt_add_library(katsodi_core STATIC
   src/media/VoiceEngine.h
   src/media/ScreenEngine.h
   src/presentation/ScreenController.h src/presentation/ScreenController.cpp
+  src/platform/ShareSources.h src/platform/ShareSources.cpp
 )
 if(LiveKit_FOUND)
   target_sources(katsodi_core PRIVATE
@@ -82,7 +83,7 @@ endif()
 target_include_directories(katsodi_core PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(katsodi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml Qt6::Sql Qt6::Multimedia)
 if(WIN32)
-  target_link_libraries(katsodi_core PUBLIC advapi32)
+  target_link_libraries(katsodi_core PUBLIC advapi32 user32 gdi32 dwmapi)
 endif()
 qt_add_resources(katsodi_core "katsodi_data"
   PREFIX "/katsodi"
@@ -149,6 +150,8 @@ qt_add_qml_module(katsodi
     qml/shell/Rail.qml
     qml/shell/NowBar.qml
     qml/shell/SearchOverlay.qml
+    qml/shell/TitleBar.qml
+    qml/shell/ResizeFrame.qml
     qml/screens/HomeScreen.qml
     qml/screens/RoomsScreen.qml
     qml/screens/RoomCard.qml
@@ -156,6 +159,8 @@ qt_add_qml_module(katsodi
     qml/screens/RoomScreen.qml
     qml/screens/PlayerStage.qml
     qml/screens/DemoPanel.qml
+    qml/screens/SharePicker.qml
+    qml/screens/FandomScreen.qml
     qml/screens/VoicePanel.qml
     qml/screens/FandomsScreen.qml
     qml/screens/LibraryScreen.qml
@@ -164,6 +169,10 @@ qt_add_qml_module(katsodi
     qml/screens/SignInScreen.qml
 )
 target_link_libraries(katsodi PRIVATE katsodi_core Qt6::Quick Qt6::QuickControls2)
+# The backdrop shader, compiled to .qsb for every graphics API at build time.
+qt_add_shaders(katsodi "katsodi_shaders"
+  PREFIX "/katsodi"
+  FILES shaders/backdrop.frag)
 katsodi_warnings(katsodi)
 
 # Fandom posters listed in the exported catalogue, copied next to the
@@ -195,12 +204,6 @@ if(LiveKit_FOUND)
   install(FILES "${KATSODI_LIVEKIT_ROOT}/LICENSE" DESTINATION licenses RENAME LiveKit-SDK-LICENSE.txt)
 endif()
 
-set(KATSODI_EDITORIAL "${CMAKE_CURRENT_SOURCE_DIR}/resources/artwork/space-1600.webp" "${CMAKE_CURRENT_SOURCE_DIR}/resources/artwork/forest-1600.webp")
-add_custom_command(TARGET katsodi POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:katsodi>/artwork/editorial
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KATSODI_EDITORIAL} $<TARGET_FILE_DIR:katsodi>/artwork/editorial
-  VERBATIM)
-install(FILES ${KATSODI_EDITORIAL} DESTINATION bin/artwork/editorial)
 add_custom_command(TARGET katsodi POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:katsodi>/artwork/fandoms
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KATSODI_ARTWORK} $<TARGET_FILE_DIR:katsodi>/artwork/fandoms

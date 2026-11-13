@@ -34,7 +34,8 @@ AbstractButton {
         }
     }
 
-    onClicked: Library.toggleFollowed(fandomId)
+    signal openRequested(string fandomId)
+    onClicked: card.openRequested(fandomId)
     background: Item {}
     contentItem: Item {
         Poster {

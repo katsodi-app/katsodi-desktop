@@ -5,11 +5,17 @@
 #include "presentation/Preferences.h"
 #include "presentation/RoomController.h"
 
+#include "platform/ShareSources.h"
+
+#include <QBuffer>
+#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QJsonObject>
 #include <QScreen>
 #include <QUrl>
 #include <QVideoFrame>
+#include <QWindow>
+#include <thread>
 
 namespace katsodi {
 namespace {
@@ -25,6 +31,7 @@ ScreenController::ScreenController(ApiClient *api, RoomController *room, Prefere
                                    ScreenEngine *engine, QObject *parent)
     : QObject(parent), m_api(api), m_room(room), m_preferences(preferences), m_engine(engine)
 {
+    m_quality = m_preferences->lowResources() ? 720 : 1080;
     m_beat.setInterval(20000);
     connect(&m_beat, &QTimer::timeout, this, &ScreenController::beat);
     m_retry.setSingleShot(true);
@@ -93,11 +100,11 @@ ScreenController::ScreenController(ApiClient *api, RoomController *room, Prefere
 
 ScreenController::~ScreenController() { shutdown(); }
 
-QSize ScreenController::publishedSize(QSize captured, bool low)
+QSize ScreenController::publishedSize(QSize captured, int boxHeight)
 {
     if (captured.width() <= 0 || captured.height() <= 0)
         return {};
-    const QSize box = low ? QSize(1280, 720) : QSize(1920, 1080);
+    const QSize box = boxHeight >= 1080 ? QSize(1920, 1080) : QSize(1280, 720);
     QSize size = captured.width() > box.width() || captured.height() > box.height()
                      ? captured.scaled(box, Qt::KeepAspectRatio)
                      : captured;
@@ -107,6 +114,32 @@ QSize ScreenController::publishedSize(QSize captured, bool low)
     size.setHeight(qMax(4, size.height() & ~3));
     return size;
 }
+
+int ScreenController::bitrateFor(int boxHeight, int framesPerSecond)
+{
+    const bool hd = boxHeight >= 1080, smooth = framesPerSecond >= 30;
+    return hd ? (smooth ? 4'000'000 : 2'500'000) : (smooth ? 2'500'000 : 1'500'000);
+}
+
+void ScreenController::setQuality(int value)
+{
+    value = value >= 1080 ? 1080 : 720;
+    if (value != m_quality) {
+        m_quality = value;
+        emit qualityChanged();
+    }
+}
+
+void ScreenController::setFramesPerSecond(int value)
+{
+    value = value >= 30 ? 30 : 15;
+    if (value != m_framesPerSecond) {
+        m_framesPerSecond = value;
+        emit qualityChanged();
+    }
+}
+
+void ScreenController::setPreviewSink(QVideoSink *sink) { m_previewSink = sink; }
 
 bool ScreenController::presenter() const
 {
@@ -226,59 +259,98 @@ void ScreenController::beat()
     });
 }
 
+namespace {
+QString dataUrl(const QImage &image, const char *format, int quality = -1)
+{
+    if (image.isNull())
+        return {};
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, format, quality);
+    return QStringLiteral("data:image/%1;base64,").arg(QString::fromLatin1(format).toLower())
+           + QString::fromLatin1(bytes.toBase64());
+}
+} // namespace
+
 void ScreenController::refreshSources()
 {
-    m_sourceList.clear();
-    m_screens.clear();
-    m_windows.clear();
+    // Screens at once (a grab of the user's own screens, shown only in the
+    // picker); windows on a worker thread, since PrintWindow may be slow.
+    m_sources.clear();
     const QList<QScreen *> screens = QGuiApplication::screens();
-    for (QScreen *screen : screens) {
-        m_screens.append(screen);
-        const QSize size = screen->size() * screen->devicePixelRatio();
-        m_sourceList.append(QVariantMap{{QStringLiteral("index"), m_sourceList.size()},
-                                        {QStringLiteral("kind"), QStringLiteral("screen")},
-                                        {QStringLiteral("name"), QStringLiteral("%1 · %2×%3")
-                                                                     .arg(screen->name().left(60))
-                                                                     .arg(size.width())
-                                                                     .arg(size.height())}});
+    for (int i = 0; i < screens.size(); ++i) {
+        ShareSource source;
+        source.kind = ShareSource::Kind::Screen;
+        source.screen = i;
+        const QSize size = screens[i]->size() * screens[i]->devicePixelRatio();
+        source.title = QStringLiteral("%1 · %2×%3").arg(screens[i]->name().left(60)).arg(size.width()).arg(size.height());
+        source.preview = screens[i]->grabWindow(0).toImage().scaled(480, 270, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        m_sources.append(source);
     }
-    for (const QCapturableWindow &window : QWindowCapture::capturableWindows()) {
-        const QString title = window.description().trimmed();
-        if (title.isEmpty() || !window.isValid())
-            continue;
-        m_windows.append(window);
-        m_sourceList.append(QVariantMap{{QStringLiteral("index"), m_sourceList.size()},
-                                        {QStringLiteral("kind"), QStringLiteral("window")},
-                                        {QStringLiteral("name"), title.left(120)}});
-        if (m_windows.size() >= 60)
-            break;
-    }
+    publishSources();
+    m_loadingSources = true;
     emit sourcesChanged();
+    const quint64 generation = ++m_sourcesGeneration;
+    const quint32 self = quint32(QCoreApplication::applicationPid());
+    QPointer<ScreenController> guard(this);
+    std::thread([guard, generation, self] {
+        QList<ShareSource> windows = listWindowSources(self);
+        QMetaObject::invokeMethod(qApp, [guard, generation, windows = std::move(windows)]() mutable {
+            if (!guard || generation != guard->m_sourcesGeneration)
+                return;
+            guard->m_sources.append(windows);
+            guard->m_loadingSources = false;
+            guard->publishSources();
+            emit guard->sourcesChanged();
+        });
+    }).detach();
+}
+
+void ScreenController::publishSources()
+{
+    m_sourceList.clear();
+    for (int i = 0; i < m_sources.size(); ++i) {
+        const ShareSource &source = m_sources.at(i);
+        m_sourceList.append(QVariantMap{
+            {QStringLiteral("index"), i},
+            {QStringLiteral("kind"), source.kind == ShareSource::Kind::Screen ? QStringLiteral("screen") : QStringLiteral("window")},
+            {QStringLiteral("name"), source.title},
+            {QStringLiteral("preview"), dataUrl(source.preview, "JPEG", 80)},
+            {QStringLiteral("icon"), dataUrl(source.icon, "PNG")},
+            {QStringLiteral("minimized"), source.minimized}});
+    }
 }
 
 void ScreenController::share(int index)
 {
-    if (!presenter() || m_sharing || index < 0 || index >= m_sourceList.size())
+    if (!presenter() || m_sharing || index < 0 || index >= m_sources.size())
         return;
     // A connection that may not publish (made before this viewer became the
     // presenter, or failed) is replaced by a new one with a fresh grant.
     if (!m_roomId.isEmpty() && (!m_connected || !m_mayPublish))
         disconnectDemo();
-    const QVariantMap source = m_sourceList.at(index).toMap();
+    const ShareSource source = m_sources.at(index);
     m_capture.setScreenCapture(nullptr);
     m_capture.setWindowCapture(nullptr);
-    if (source.value(QStringLiteral("kind")) == QLatin1StringView("screen")) {
-        QScreen *screen = m_screens.value(index);
-        if (!screen)
+    m_foreign.reset();
+    if (source.kind == ShareSource::Kind::Screen) {
+        const QList<QScreen *> screens = QGuiApplication::screens();
+        if (source.screen < 0 || source.screen >= screens.size())
             return;
-        m_screenCapture.setScreen(screen);
+        m_screenCapture.setScreen(screens.at(source.screen));
         m_capture.setScreenCapture(&m_screenCapture);
         m_screenCapture.start();
     } else {
-        const qsizetype window = index - m_screens.size();
-        if (window < 0 || window >= m_windows.size() || !m_windows.at(window).isValid())
+        // Qt captures a window given as a QWindow; a foreign one wraps the handle.
+        m_foreign.reset(QWindow::fromWinId(WId(source.window)));
+        const QCapturableWindow window(m_foreign.get());
+        if (!m_foreign || !window.isValid()) {
+            m_foreign.reset();
+            setState(m_state, QStringLiteral("screenCaptureFailed"));
             return;
-        m_windowCapture.setWindow(m_windows.at(window));
+        }
+        m_windowCapture.setWindow(window);
         m_capture.setWindowCapture(&m_windowCapture);
         m_windowCapture.start();
     }
@@ -292,21 +364,24 @@ void ScreenController::share(int index)
 
 void ScreenController::onFrame(const QVideoFrame &frame)
 {
-    if (!m_sharing || !frame.isValid() || !m_connected || !m_mayPublish)
+    if (!m_sharing || !frame.isValid())
         return;
-    const bool low = m_preferences->lowResources();
-    const qint64 interval = 1000 / (low ? 8 : 15);
+    const qint64 interval = 1000 / m_framesPerSecond;
     if (m_sinceFrame.isValid() && m_sinceFrame.elapsed() < interval)
         return;
-    if (m_room->demoStatus() == QLatin1StringView("paused"))
-        return;
     m_sinceFrame.start();
+    // The presenter sees what is shared, even before the connection is up.
+    if (m_previewSink)
+        m_previewSink->setVideoFrame(frame);
+    if (!m_connected || !m_mayPublish || m_room->demoStatus() == QLatin1StringView("paused"))
+        return;
     const QImage image = frame.toImage();
     if (image.isNull())
         return;
     if (!m_publishStarted) {
         m_publishStarted = true;
-        m_engine->startPublishing(publishedSize(image.size(), low), low ? 8 : 15, low ? 1'200'000 : 2'500'000);
+        m_engine->startPublishing(publishedSize(image.size(), m_quality), m_framesPerSecond,
+                                  bitrateFor(m_quality, m_framesPerSecond));
     }
     m_engine->pushFrame(image);
 }
@@ -319,6 +394,9 @@ void ScreenController::stopCapture()
     m_windowCapture.stop();
     m_capture.setScreenCapture(nullptr);
     m_capture.setWindowCapture(nullptr);
+    m_foreign.reset();
+    if (m_previewSink)
+        m_previewSink->setVideoFrame({});
     if (m_publishStarted)
         m_engine->stopPublishing();
     m_publishStarted = false;

@@ -5,54 +5,97 @@ import QtMultimedia
 import Katsodi.App
 import Katsodi.Ui
 
-// Link demo (screen sharing) in the room's stage, by the website's rules:
-// ask to show a link; hosts accept, pause or end; the presenter picks a
-// screen or window; everyone in the room watches it here.
+// The room's Demo pane (screen sharing), by the website's rules: ask to
+// show a link; hosts accept, pause or end; the presenter picks a window or
+// a screen (Discord-style picker below) and sees their own picture; everyone
+// else in the room watches it here.
 ColumnLayout {
     id: panel
-    spacing: 10
+    spacing: 12
     readonly property bool running: Room.demoStatus === "live" || Room.demoStatus === "paused"
     readonly property bool pending: Room.demoStatus === "pending"
 
-    // Watching costs decoding: only while this panel is on screen.
+    // Watching costs decoding: only while this pane is on screen.
     onVisibleChanged: Demo.setWanted(visible)
-    Component.onCompleted: { Demo.setWanted(visible); Demo.setVideoSink(video.videoSink) }
-    Component.onDestruction: { Demo.setWanted(false); Demo.setVideoSink(null) }
-
-    // Nothing running: ask to show a link.
-    RowLayout {
-        Layout.fillWidth: true
-        visible: Room.demoStatus === "" && Room.joined && !Room.closed && Demo.available
-        spacing: 8
-        KTextField {
-            id: demoField
-            Layout.fillWidth: true
-            iconName: "globe"
-            placeholderText: I18n.s.demoPlaceholder
-            maximumLength: 2048
-            onAccepted: if (Demo.request(text)) demoField.clear()
-        }
-        KButton {
-            kind: "ghost"
-            iconName: "sliders"
-            text: Demo.busy ? I18n.s.loading : I18n.s.demoAsk
-            enabled: !Demo.busy && demoField.text.trim().length > 0
-            onClicked: if (Demo.request(demoField.text)) demoField.clear()
-        }
+    Component.onCompleted: {
+        Demo.setWanted(visible)
+        Demo.setVideoSink(remoteVideo.videoSink)
+        Demo.setPreviewSink(selfVideo.videoSink)
+    }
+    Component.onDestruction: {
+        Demo.setWanted(false)
+        Demo.setVideoSink(null)
+        Demo.setPreviewSink(null)
     }
 
-    // A request waiting for a host.
+    // --- Nothing running: what a demo is, and the link to ask for ---------
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        visible: Room.demoStatus === ""
+        spacing: 14
+        Item { Layout.fillHeight: true }
+        Rectangle {
+            Layout.alignment: Qt.AlignHCenter
+            implicitWidth: 72; implicitHeight: 72; radius: 22
+            color: Theme.c.selected
+            Icon { anchors.centerIn: parent; name: "monitor"; size: 32; color: Theme.c.accent }
+        }
+        Text {
+            Layout.fillWidth: true
+            Layout.maximumWidth: 520
+            Layout.alignment: Qt.AlignHCenter
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: I18n.s.demoIdle
+            color: K.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: 14
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.maximumWidth: 620
+            Layout.alignment: Qt.AlignHCenter
+            spacing: 8
+            KTextField {
+                id: demoField
+                Layout.fillWidth: true
+                iconName: "globe"
+                placeholderText: I18n.s.demoPlaceholder
+                maximumLength: 2048
+                onAccepted: if (Demo.request(text)) demoField.clear()
+            }
+            KButton {
+                kind: "primary"
+                iconName: "monitor"
+                text: Demo.busy ? I18n.s.loading : I18n.s.demoAsk
+                enabled: !Demo.busy && demoField.text.trim().length > 0
+                onClicked: if (Demo.request(demoField.text)) demoField.clear()
+            }
+        }
+        Text {
+            Layout.alignment: Qt.AlignHCenter
+            visible: Demo.errorKey !== ""
+            text: I18n.s[Demo.errorKey] || I18n.s.errorServer
+            color: Theme.c.danger
+            font.family: Theme.fontFamily
+            font.pixelSize: 12
+        }
+        Item { Layout.fillHeight: true }
+    }
+
+    // --- A request waiting for a host -------------------------------------
     Glass {
         Layout.fillWidth: true
         visible: panel.pending
-        implicitHeight: pendingRow.implicitHeight + 24
-        radius: 14
+        implicitHeight: pendingRow.implicitHeight + 28
+        radius: 16
         RowLayout {
             id: pendingRow
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
-            Icon { name: "clock"; size: 18; color: Theme.c.accent }
+            anchors.margins: 14
+            spacing: 12
+            Icon { name: "clock"; size: 20; color: Theme.c.accent }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 2
@@ -61,7 +104,7 @@ ColumnLayout {
                     text: Room.demoMine ? I18n.s.demoPendingMine : I18n.s.demoPendingHost.replace("{name}", Room.demoUserName)
                     color: K.text
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
+                    font.pixelSize: 14
                     font.weight: Font.DemiBold
                     wrapMode: Text.WordWrap
                 }
@@ -97,8 +140,9 @@ ColumnLayout {
             }
         }
     }
+    Item { Layout.fillHeight: true; visible: panel.pending }
 
-    // A running demo: header with controls, then the screen.
+    // --- A running demo ---------------------------------------------------
     RowLayout {
         Layout.fillWidth: true
         visible: panel.running
@@ -114,13 +158,13 @@ ColumnLayout {
                   : I18n.s.demoLive.replace("{name}", Room.demoUserName)
             color: K.text
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: 14
             font.weight: Font.DemiBold
             elide: Text.ElideRight
         }
         IconButton {
             iconName: "link"
-            diameter: 32
+            diameter: 34
             tip: I18n.s.demoOpenLink
             visible: Room.demoUrl !== ""
             onClicked: Links.openExternal(Room.demoUrl)
@@ -135,8 +179,9 @@ ColumnLayout {
         KButton {
             visible: Demo.presenter && !Demo.sharing
             small: true; kind: "primary"
+            iconName: "monitor"
             text: I18n.s.demoShare
-            onClicked: { Demo.refreshSources(); picker.open() }
+            onClicked: picker.open()
         }
         KButton {
             visible: Demo.sharing
@@ -155,40 +200,69 @@ ColumnLayout {
 
     Rectangle {
         Layout.fillWidth: true
+        Layout.fillHeight: true
+        Layout.minimumHeight: 220
         visible: panel.running
-        Layout.preferredHeight: Math.min(Math.round(width / Math.max(0.5, Demo.remoteAspect)), 620)
-        radius: 14
+        radius: 16
         color: "#000000"
         border.width: 1
         border.color: K.stroke
         clip: true
 
+        // What everyone else receives.
         VideoOutput {
-            id: video
+            id: remoteVideo
             anchors.fill: parent
             anchors.margins: 1
             fillMode: VideoOutput.PreserveAspectFit
-            visible: Demo.remote
+            visible: Demo.remote && !Demo.sharing
+        }
+        // The presenter's own picture, straight from the capture.
+        VideoOutput {
+            id: selfVideo
+            anchors.fill: parent
+            anchors.margins: 1
+            fillMode: VideoOutput.PreserveAspectFit
+            visible: Demo.sharing
+        }
+        Rectangle {
+            visible: Demo.sharing
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.margins: 12
+            radius: 12
+            height: 26
+            width: selfLabel.implicitWidth + 22
+            color: Qt.alpha("#000000", 0.6)
+            Text {
+                id: selfLabel
+                anchors.centerIn: parent
+                text: I18n.s.demoSelfPreview
+                color: "#ffffff"
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+            }
         }
         Text {
             anchors.centerIn: parent
             width: parent.width - 40
-            visible: !Demo.remote
+            visible: !Demo.sharing && !Demo.remote
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             text: Demo.state === "error" ? (I18n.s[Demo.errorKey] || I18n.s.screenUnavailable)
-                  : Demo.sharing ? I18n.s.demoYouShare
                   : Demo.presenter ? I18n.s.demoChoose
                   : I18n.s.demoWaiting.replace("{name}", Room.demoUserName)
             color: Demo.state === "error" ? Theme.c.danger : "#c8c8c8"
             font.family: Theme.fontFamily
-            font.pixelSize: 13
+            font.pixelSize: 14
         }
     }
     Text {
         Layout.fillWidth: true
-        visible: Demo.sharing || (Demo.errorKey !== "" && Demo.state !== "error")
-        text: Demo.errorKey !== "" ? (I18n.s[Demo.errorKey] || I18n.s.errorServer) : I18n.s.demoNoAudio
+        visible: panel.running && (Demo.sharing || (Demo.errorKey !== "" && Demo.state !== "error"))
+        text: Demo.errorKey !== "" ? (I18n.s[Demo.errorKey] || I18n.s.errorServer)
+              : I18n.s.demoNoAudio + "  ·  " + I18n.s.demoQualityNote.replace("{size}", Demo.quality + "p").replace("{fps}", Demo.framesPerSecond)
         color: Demo.errorKey !== "" ? Theme.c.danger : K.muted
         font.family: Theme.fontFamily
         font.pixelSize: 12
@@ -198,73 +272,5 @@ ColumnLayout {
     // The provider player is a native window: hide it under the picker.
     Binding { target: Player; property: "obscured"; value: true; when: picker.visible }
 
-    // Presenter's choice of a screen or window.
-    Popup {
-        id: picker
-        parent: Overlay.overlay
-        modal: true
-        x: (parent.width - width) / 2
-        y: Math.min(100, parent.height * 0.1)
-        width: Math.min(560, parent.width - 32)
-        height: Math.min(520, parent.height - y - 24)
-        padding: 0
-        background: Glass { solid: true; radius: K.rPanel }
-        Overlay.modal: Rectangle { color: Qt.alpha(Theme.c.background, 0.8) }
-        contentItem: ColumnLayout {
-            spacing: 8
-            Text {
-                Layout.fillWidth: true
-                Layout.margins: 18
-                Layout.bottomMargin: 0
-                text: I18n.s.demoChoose
-                color: K.text
-                font.family: Theme.displayFamily
-                font.pixelSize: 24
-                font.weight: Font.Bold
-            }
-            ListView {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.bottomMargin: 10
-                clip: true
-                model: Demo.sources
-                spacing: 2
-                ScrollBar.vertical: ScrollBar {}
-                delegate: AbstractButton {
-                    id: choice
-                    required property var modelData
-                    width: ListView.view.width
-                    height: 52
-                    hoverEnabled: true
-                    onClicked: { Demo.share(modelData.index); picker.close() }
-                    Accessible.name: modelData.name
-                    background: Rectangle {
-                        radius: 12
-                        x: 8; width: parent.width - 16
-                        color: choice.hovered ? K.glassHover : "transparent"
-                    }
-                    contentItem: RowLayout {
-                        spacing: 12
-                        Item { implicitWidth: 10 }
-                        Icon { name: choice.modelData.kind === "screen" ? "video" : "rooms"; size: 18; color: Theme.c.accent }
-                        Text {
-                            Layout.fillWidth: true
-                            text: choice.modelData.name
-                            color: K.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 13
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            text: choice.modelData.kind === "screen" ? I18n.s.demoScreen : I18n.s.demoWindow
-                            color: K.muted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 11
-                        }
-                        Item { implicitWidth: 10 }
-                    }
-                }
-            }
-        }
-    }
+    SharePicker { id: picker }
 }

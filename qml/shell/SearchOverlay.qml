@@ -9,7 +9,7 @@ import Katsodi.Ui
 Popup {
     id: overlay
     signal openRoom(string id)
-    signal openFandoms()
+    signal openFandom(string id)
     modal: true
     focus: true
     padding: 0
@@ -40,7 +40,7 @@ Popup {
         if (item.type === "room")
             overlay.openRoom(item.itemId)
         else
-            overlay.openFandoms()
+            overlay.openFandom(item.itemId)
         overlay.close()
     }
 

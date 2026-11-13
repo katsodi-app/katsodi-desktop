@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/ScreenEngine.h"
+#include "platform/ShareSources.h"
 
 #include <QCapturableWindow>
 #include <QElapsedTimer>
@@ -11,7 +12,9 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVideoSink>
+#include <QWindow>
 #include <QWindowCapture>
+#include <memory>
 
 namespace katsodi {
 
@@ -48,8 +51,13 @@ class ScreenController : public QObject {
     /** The current running demo is this viewer's: it may share. */
     Q_PROPERTY(bool presenter READ presenter NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
-    /** Screens and windows to share: [{ index, kind: "screen"|"window", name }]. */
+    /** Screens and windows to share: [{ index, kind, name, preview, icon, minimized }]. */
     Q_PROPERTY(QVariantList sources READ sources NOTIFY sourcesChanged)
+    Q_PROPERTY(bool loadingSources READ loadingSources NOTIFY sourcesChanged)
+    /** Published height box: 720 or 1080. */
+    Q_PROPERTY(int quality READ quality WRITE setQuality NOTIFY qualityChanged)
+    /** 15 or 30. */
+    Q_PROPERTY(int framesPerSecond READ framesPerSecond WRITE setFramesPerSecond NOTIFY qualityChanged)
 public:
     ScreenController(ApiClient *api, RoomController *room, Preferences *preferences, ScreenEngine *engine,
                      QObject *parent = nullptr);
@@ -64,6 +72,13 @@ public:
     bool presenter() const;
     bool busy() const { return m_busy; }
     QVariantList sources() const { return m_sourceList; }
+    bool loadingSources() const { return m_loadingSources; }
+    int quality() const { return m_quality; }
+    void setQuality(int value);
+    int framesPerSecond() const { return m_framesPerSecond; }
+    void setFramesPerSecond(int value);
+    /** Where the presenter sees their own shared picture (may be null). */
+    Q_INVOKABLE void setPreviewSink(QVideoSink *sink);
 
     /** The room screen is shown: watching is wanted (decoding costs CPU). */
     Q_INVOKABLE void setWanted(bool wanted);
@@ -84,12 +99,15 @@ public:
     /** Ends capture and connection now (client exit). */
     void shutdown();
 
-    /** Size a captured frame is published at (public for tests). */
-    static QSize publishedSize(QSize captured, bool low);
+    /** Size a captured frame is published at, in a 720p or 1080p box (public for tests). */
+    static QSize publishedSize(QSize captured, int boxHeight);
+    /** Encoder bitrate for a quality and frame rate (public for tests). */
+    static int bitrateFor(int boxHeight, int framesPerSecond);
 
 signals:
     void changed();
     void sourcesChanged();
+    void qualityChanged();
 
 private:
     void roomChanged();
@@ -100,6 +118,7 @@ private:
     void stopCapture();
     void post(const QString &suffix, const QJsonObject &body, bool remove = false);
     void setState(const QString &state, const QString &errorKey = {});
+    void publishSources();
 
     ApiClient *m_api;
     RoomController *m_room;
@@ -121,8 +140,12 @@ private:
     QVideoSink m_captureSink;
     QElapsedTimer m_sinceFrame;
     QVariantList m_sourceList;
-    QList<QCapturableWindow> m_windows;
-    QList<QPointer<QScreen>> m_screens;
+    QList<ShareSource> m_sources;
+    quint64 m_sourcesGeneration = 0;
+    bool m_loadingSources = false;
+    std::unique_ptr<QWindow> m_foreign; // the shared window's handle, wrapped
+    QPointer<QVideoSink> m_previewSink;
+    int m_quality = 1080, m_framesPerSecond = 15;
 };
 
 } // namespace katsodi

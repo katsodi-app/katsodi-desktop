@@ -7,6 +7,7 @@
 // Qt Multimedia), never the screen or another application.
 
 #include "media/livekit/LiveKitScreenEngine.h"
+#include "platform/ShareSources.h"
 #include "presentation/ScreenController.h"
 
 #include <QCapturableWindow>
@@ -19,7 +20,11 @@
 #include <QTest>
 #include <QVideoFrame>
 #include <QVideoSink>
+#include <QWindow>
 #include <QWindowCapture>
+
+#include <algorithm>
+#include <memory>
 
 using namespace katsodi;
 
@@ -61,20 +66,65 @@ private slots:
         m_url = qEnvironmentVariable("KATSODI_LK_URL");
         m_presenter = qEnvironmentVariable("KATSODI_LK_TOKEN_A");
         m_viewer = qEnvironmentVariable("KATSODI_LK_TOKEN_B");
-        if (m_url.isEmpty() || m_presenter.isEmpty() || m_viewer.isEmpty())
-            QSKIP("run tools/screen-live-check.mjs");
+    }
+
+    // The picker's list (Win32) finds a real window with a preview and icon,
+    // and that window can be captured by its handle, as the client does.
+    // Only this test's own window is captured.
+    void pickerFindsAndCapturesAWindowByHandle()
+    {
+        Pattern window;
+        window.setTitle(QStringLiteral("katsodi share check"));
+        window.resize(640, 360);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTest::qWait(200);
+        QElapsedTimer timer;
+        timer.start();
+        const QList<ShareSource> withSelf = listWindowSources(0);
+        const qint64 listed = timer.elapsed();
+        const auto found = std::find_if(withSelf.begin(), withSelf.end(), [&](const ShareSource &s) {
+            return s.window == quintptr(window.winId());
+        });
+        QVERIFY2(found != withSelf.end(), "the test window was not listed");
+        QCOMPARE(found->title, QStringLiteral("katsodi share check"));
+        QVERIFY(!found->preview.isNull());
+        // The pattern's green shows in the preview.
+        const QColor colour = found->preview.pixelColor(found->preview.width() / 2, found->preview.height() * 3 / 4);
+        QVERIFY2(qAbs(colour.green() - 160) < 30, qPrintable(colour.name()));
+        qInfo("listed %lld windows with previews in %lld ms", qint64(withSelf.size()), listed);
+        // The client excludes its own windows.
+        for (const ShareSource &s : listWindowSources(quint32(QCoreApplication::applicationPid())))
+            QVERIFY(s.window != quintptr(window.winId()));
+
+        std::unique_ptr<QWindow> foreign(QWindow::fromWinId(window.winId()));
+        const QCapturableWindow capturable(foreign.get());
+        QVERIFY(capturable.isValid());
+        QMediaCaptureSession capture;
+        QWindowCapture windowCapture;
+        QVideoSink sink;
+        capture.setWindowCapture(&windowCapture);
+        capture.setVideoSink(&sink);
+        windowCapture.setWindow(capturable);
+        int frames = 0;
+        connect(&sink, &QVideoSink::videoFrameChanged, this, [&](const QVideoFrame &frame) { frames += frame.isValid(); });
+        windowCapture.start();
+        QVERIFY2(waitFor([&] { return frames > 0; }, 10000), "no frame from the window captured by handle");
+        windowCapture.stop();
     }
 
     void publishedSizeFitsTheBox()
     {
-        QCOMPARE(ScreenController::publishedSize({2560, 1440}, false), QSize(1920, 1080));
-        QCOMPARE(ScreenController::publishedSize({2560, 1440}, true), QSize(1280, 720));
-        QCOMPARE(ScreenController::publishedSize({801, 603}, false), QSize(800, 600));
-        QCOMPARE(ScreenController::publishedSize({1444, 822}, false), QSize(1444, 820));
+        QCOMPARE(ScreenController::publishedSize({2560, 1440}, 1080), QSize(1920, 1080));
+        QCOMPARE(ScreenController::publishedSize({2560, 1440}, 720), QSize(1280, 720));
+        QCOMPARE(ScreenController::publishedSize({801, 603}, 1080), QSize(800, 600));
+        QCOMPARE(ScreenController::publishedSize({1444, 822}, 1080), QSize(1444, 820));
     }
 
     void presenterToViewer()
     {
+        if (m_url.isEmpty() || m_presenter.isEmpty() || m_viewer.isEmpty())
+            QSKIP("run tools/screen-live-check.mjs");
         LiveKitScreenEngine presenter, viewer;
         QVideoSink sink;
         viewer.setVideoSink(&sink);
@@ -115,7 +165,7 @@ private slots:
             capturedSize = image.size();
             if (!started) {
                 started = true;
-                presenter.startPublishing(ScreenController::publishedSize(image.size(), false), 15, 2'500'000);
+                presenter.startPublishing(ScreenController::publishedSize(image.size(), 1080), 15, 2'500'000);
             }
             presenter.pushFrame(image);
         });
@@ -145,7 +195,7 @@ private slots:
         qInfo("viewer: first frame %lld ms after capture started, %dx%d", timer.elapsed(), receivedSize.width(),
               receivedSize.height());
         QVERIFY(!remote.isEmpty() && remote.first().at(0).toBool());
-        QCOMPARE(receivedSize, ScreenController::publishedSize(capturedSize, false));
+        QCOMPARE(receivedSize, ScreenController::publishedSize(capturedSize, 1080));
         QVERIFY(waitFor([&] { return received >= 30; }, 15000));
         // The pattern's green survives encoding (tolerance for compression).
         qInfo("centre colour %d,%d,%d after %d frames", centre.red(), centre.green(), centre.blue(), received);

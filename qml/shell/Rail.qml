@@ -22,7 +22,8 @@ Glass {
         { name: "fandoms", icon: "fandoms", label: I18n.s.navFandoms },
         { name: "library", icon: "library", label: I18n.s.navLibrary }
     ]
-    readonly property string section: current === "room" ? "rooms" : current === "signin" ? "settings" : current
+    readonly property string section: current === "room" ? "rooms" : current === "fandom" ? "fandoms"
+                                     : current === "signin" ? "settings" : current
 
     function itemFor(name) {
         if (name === "settings")

@@ -88,6 +88,7 @@ Scroller {
             page: page
             model: Fandoms
             delegate: FandomCard {
+                onOpenRequested: (id) => page.navigate("fandom", id)
                 required property var model
                 required property int index
                 order: index
