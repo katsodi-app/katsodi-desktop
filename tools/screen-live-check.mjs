@@ -28,15 +28,17 @@ if (!url?.startsWith("wss://") || !key || !secret) {
 }
 const room = `katsodi-native-check-${randomBytes(6).toString("hex")}`;
 // The same grants as demoToken on the server: only the presenter may
-// publish, and only a screen share; the viewer only subscribes.
-async function token(identity, publish) {
+// publish, and only a screen share. Data (shared-browser input and
+// control) for the presenter, and for a viewer only while a host opened
+// the demo channel: viewer B has it closed, viewer C open.
+async function token(identity, publish, data = publish) {
   const access = new AccessToken(key, secret, { identity, ttl: 180 });
   access.addGrant({
     roomJoin: true,
     room,
     canPublish: publish,
     canSubscribe: true,
-    canPublishData: false,
+    canPublishData: data,
     canPublishSources: publish ? [TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO] : [],
   });
   return access.toJwt();
@@ -53,6 +55,7 @@ const result = spawnSync(exe, ["-o", `${report},txt`], {
     KATSODI_LK_URL: url,
     KATSODI_LK_TOKEN_A: await token("native-presenter", true),
     KATSODI_LK_TOKEN_B: await token("native-viewer", false),
+    KATSODI_LK_TOKEN_C: await token("native-viewer-open", false, true),
   },
 });
 if (result.error) console.error(result.error.message);

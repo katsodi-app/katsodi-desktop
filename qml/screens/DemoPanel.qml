@@ -72,6 +72,26 @@ ColumnLayout {
                 enabled: !Demo.busy && demoField.text.trim().length > 0
                 onClicked: if (Demo.request(demoField.text)) demoField.clear()
             }
+            KButton {
+                visible: Room.canControl && Browser.available
+                kind: "ghost"
+                iconName: "globe"
+                text: I18n.s.browserStart
+                enabled: !Demo.busy && demoField.text.trim().length > 0
+                onClicked: { disclaimer.url = demoField.text.trim(); disclaimer.open() }
+            }
+        }
+        Text {
+            Layout.fillWidth: true
+            Layout.maximumWidth: 620
+            Layout.alignment: Qt.AlignHCenter
+            visible: Room.canControl && Browser.available
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: I18n.s.browserStartHint
+            color: K.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: 12
         }
         Text {
             Layout.alignment: Qt.AlignHCenter
@@ -153,7 +173,8 @@ ColumnLayout {
         }
         Text {
             Layout.fillWidth: true
-            text: Demo.sharing ? I18n.s.demoYouShare
+            text: Demo.browserSession ? (Browser.title || I18n.s.browserStart)
+                  : Demo.sharing ? I18n.s.demoYouShare
                   : Room.demoStatus === "paused" ? I18n.s.demoPausedBy
                   : I18n.s.demoLive.replace("{name}", Room.demoUserName)
             color: K.text
@@ -177,6 +198,13 @@ ColumnLayout {
             onClicked: Demo.togglePause()
         }
         KButton {
+            visible: Demo.browserSession
+            small: true; kind: "ghost"
+            iconName: "rooms"
+            text: I18n.s.browserAccess + (Demo.controlAll ? " · ∞" : Demo.controllers.length ? " · " + Demo.controllers.length : "")
+            onClicked: access.open()
+        }
+        KButton {
             visible: Demo.presenter && !Demo.sharing
             small: true; kind: "primary"
             iconName: "monitor"
@@ -198,6 +226,24 @@ ColumnLayout {
         }
     }
 
+    RowLayout {
+        Layout.fillWidth: true
+        visible: panel.running && Demo.browserSession
+        spacing: 6
+        IconButton { iconName: "back"; diameter: 34; tip: I18n.s.browserBack; enabled: Browser.canBack; onClicked: Browser.back() }
+        IconButton { iconName: "chevron"; diameter: 34; tip: I18n.s.browserForward; enabled: Browser.canForward; onClicked: Browser.forward() }
+        IconButton { iconName: "clock"; diameter: 34; tip: I18n.s.browserReload; onClicked: Browser.reload() }
+        KTextField {
+            id: address
+            Layout.fillWidth: true
+            iconName: "globe"
+            placeholderText: I18n.s.browserUrlPlaceholder
+            maximumLength: 2048
+            text: Browser.url
+            onAccepted: Browser.navigate(text)
+        }
+    }
+
     Rectangle {
         Layout.fillWidth: true
         Layout.fillHeight: true
@@ -208,6 +254,36 @@ ColumnLayout {
         border.width: 1
         border.color: K.stroke
         clip: true
+
+        // The presenter's shared browser is drawn here by the helper process.
+        Item {
+            id: browserSurface
+            anchors.fill: parent
+            anchors.margins: 1
+            visible: Demo.browserSession
+            function report() {
+                const window = browserSurface.Window.window
+                if (!window)
+                    return
+                const p = browserSurface.mapToItem(null, 0, 0)
+                const x = Math.max(0, p.x), y = Math.max(0, p.y)
+                const w = Math.min(p.x + width, window.width) - x
+                const h = Math.min(p.y + height, window.height) - y
+                Browser.setSurface(window, x, y, Math.max(0, w), Math.max(0, h), browserSurface.visible && panel.visible && w > 40 && h > 40)
+            }
+            Connections {
+                target: browserSurface.Window.window
+                function onAfterAnimating() { if (Demo.browserSession) browserSurface.report() }
+            }
+            onVisibleChanged: report()
+            onWidthChanged: report()
+            onHeightChanged: report()
+            Component.onDestruction: {
+                const window = browserSurface.Window.window
+                if (window)
+                    Browser.setSurface(window, 0, 0, 0, 0, false)
+            }
+        }
 
         // What everyone else receives.
         VideoOutput {
@@ -223,10 +299,108 @@ ColumnLayout {
             anchors.fill: parent
             anchors.margins: 1
             fillMode: VideoOutput.PreserveAspectFit
-            visible: Demo.sharing
+            visible: Demo.sharing && !Demo.browserSession
+        }
+        // A viewer with control: clicks, wheel and keys go to the presenter's browser.
+        MouseArea {
+            id: remoteInput
+            anchors.fill: remoteVideo
+            visible: Demo.canControl && Demo.remote && !Demo.sharing
+            enabled: visible
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+            cursorShape: Qt.PointingHandCursor
+            property real lastMove: 0
+            function point(mouse) {
+                const r = remoteVideo.contentRect
+                return { x: Math.max(0, Math.min(1, (mouse.x - r.x) / Math.max(1, r.width))),
+                         y: Math.max(0, Math.min(1, (mouse.y - r.y) / Math.max(1, r.height))) }
+            }
+            function button(b) { return b === Qt.RightButton ? "right" : b === Qt.MiddleButton ? "middle" : "left" }
+            onPositionChanged: (mouse) => {
+                const now = Date.now()
+                if (now - lastMove < 33)
+                    return
+                lastMove = now
+                const p = point(mouse)
+                Demo.sendInput({ type: "mouse", action: "move", x: p.x, y: p.y, button: "none" })
+            }
+            onPressed: (mouse) => {
+                keys.forceActiveFocus()
+                const p = point(mouse)
+                Demo.sendInput({ type: "mouse", action: "down", x: p.x, y: p.y, button: button(mouse.button), clicks: 1 })
+            }
+            onReleased: (mouse) => {
+                const p = point(mouse)
+                Demo.sendInput({ type: "mouse", action: "up", x: p.x, y: p.y, button: button(mouse.button), clicks: 1 })
+            }
+            onWheel: (wheel) => {
+                const p = point(wheel)
+                Demo.sendInput({ type: "mouse", action: "wheel", x: p.x, y: p.y, dx: -wheel.angleDelta.x, dy: -wheel.angleDelta.y })
+            }
+        }
+        Item {
+            id: keys
+            anchors.fill: remoteInput
+            visible: remoteInput.visible
+            focus: false
+            // Text goes as text (any language); special keys as key events.
+            readonly property var special: ({
+                [Qt.Key_Return]: ["Enter", "Enter", 13], [Qt.Key_Enter]: ["Enter", "NumpadEnter", 13],
+                [Qt.Key_Backspace]: ["Backspace", "Backspace", 8], [Qt.Key_Tab]: ["Tab", "Tab", 9],
+                [Qt.Key_Escape]: ["Escape", "Escape", 27], [Qt.Key_Delete]: ["Delete", "Delete", 46],
+                [Qt.Key_Left]: ["ArrowLeft", "ArrowLeft", 37], [Qt.Key_Up]: ["ArrowUp", "ArrowUp", 38],
+                [Qt.Key_Right]: ["ArrowRight", "ArrowRight", 39], [Qt.Key_Down]: ["ArrowDown", "ArrowDown", 40],
+                [Qt.Key_Home]: ["Home", "Home", 36], [Qt.Key_End]: ["End", "End", 35],
+                [Qt.Key_PageUp]: ["PageUp", "PageUp", 33], [Qt.Key_PageDown]: ["PageDown", "PageDown", 34]
+            })
+            function modifiers(event) {
+                return (event.modifiers & Qt.ControlModifier ? 2 : 0) | (event.modifiers & Qt.ShiftModifier ? 8 : 0)
+            }
+            function send(event, action) {
+                const known = special[event.key]
+                if (known) {
+                    Demo.sendInput({ type: "key", action: action, key: known[0], code: known[1], vk: known[2],
+                                     modifiers: modifiers(event), text: known[0] === "Enter" && action === "down" ? "\r" : "" })
+                    return true
+                }
+                // Ctrl + letter (select all, undo, redo); the presenter filters the rest.
+                if (event.modifiers & Qt.ControlModifier && event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
+                    const letter = String.fromCharCode(event.key + 32)
+                    Demo.sendInput({ type: "key", action: action, key: letter, code: "Key" + letter.toUpperCase(),
+                                     vk: event.key, modifiers: modifiers(event) })
+                    return true
+                }
+                if (action === "down" && event.text.length > 0 && event.text.charCodeAt(0) >= 32) {
+                    Demo.sendInput({ type: "text", text: event.text })
+                    return true
+                }
+                return false
+            }
+            Keys.onPressed: (event) => { event.accepted = send(event, "down") }
+            Keys.onReleased: (event) => { event.accepted = send(event, "up") }
         }
         Rectangle {
-            visible: Demo.sharing
+            visible: Demo.browserSession === false && !Demo.sharing && Demo.remote && Room.demoStatus === "live"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 12
+            radius: 12
+            height: 26
+            width: controlLabel.implicitWidth + 22
+            color: Qt.alpha("#000000", 0.6)
+            Text {
+                id: controlLabel
+                anchors.centerIn: parent
+                text: Demo.canControl ? I18n.s.browserYouControl : ""
+                color: "#ffffff"
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+            }
+        }
+        Rectangle {
+            visible: Demo.sharing && !Demo.browserSession
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.margins: 12
@@ -269,8 +443,25 @@ ColumnLayout {
         wrapMode: Text.WordWrap
     }
 
-    // The provider player is a native window: hide it under the picker.
-    Binding { target: Player; property: "obscured"; value: true; when: picker.visible }
+    Text {
+        Layout.fillWidth: true
+        visible: panel.running && !Demo.sharing && Demo.remote
+        text: Demo.canControl ? I18n.s.browserYouControl : I18n.s.browserViewOnly
+        color: Demo.canControl ? Theme.c.success : K.muted
+        font.family: Theme.fontFamily
+        font.pixelSize: 12
+        font.weight: Font.DemiBold
+    }
+
+    // The player and the shared browser are native windows: they step aside
+    // under these popups, since nothing can be drawn over them.
+    Binding { target: Player; property: "obscured"; value: true; when: picker.visible || disclaimer.visible || access.visible }
+    Binding { target: Browser; property: "obscured"; value: true; when: picker.visible || disclaimer.visible || access.visible }
 
     SharePicker { id: picker }
+    BrowserDisclaimer {
+        id: disclaimer
+        onConfirmed: (url) => { if (Demo.startBrowser(url)) demoField.clear() }
+    }
+    BrowserAccess { id: access }
 }

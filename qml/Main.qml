@@ -205,6 +205,7 @@ ApplicationWindow {
     // The provider player is a separate native window: it hides while a
     // popup covers the stage, since nothing can be drawn over it.
     Binding { target: Player; property: "obscured"; value: search.visible || create.visible }
+    Binding { target: Browser; property: "obscured"; value: search.visible || create.visible }
     Connections {
         target: Player
         function onExternalRequested(url) { Links.openExternal(url) }

@@ -10,6 +10,8 @@
 #include <QPointer>
 #include <QScreenCapture>
 #include <QTimer>
+#include <QHash>
+#include <QStringList>
 #include <QVariantList>
 #include <QVideoSink>
 #include <QWindow>
@@ -58,9 +60,16 @@ class ScreenController : public QObject {
     Q_PROPERTY(int quality READ quality WRITE setQuality NOTIFY qualityChanged)
     /** 15 or 30. */
     Q_PROPERTY(int framesPerSecond READ framesPerSecond WRITE setFramesPerSecond NOTIFY qualityChanged)
+    /** The demo is the shared browser (not a captured window or screen). */
+    Q_PROPERTY(bool browserSession READ browserSession NOTIFY changed)
+    /** Presenter: who may control the shared browser. */
+    Q_PROPERTY(QStringList controllers READ controllers NOTIFY controlChanged)
+    Q_PROPERTY(bool controlAll READ controlAll NOTIFY controlChanged)
+    /** Viewer: the presenter lets this viewer control the shared browser. */
+    Q_PROPERTY(bool canControl READ canControl NOTIFY controlChanged)
 public:
     ScreenController(ApiClient *api, RoomController *room, Preferences *preferences, ScreenEngine *engine,
-                     QObject *parent = nullptr);
+                     class BrowserController *browser, QObject *parent = nullptr);
     ~ScreenController() override;
 
     bool available() const { return m_engine->available(); }
@@ -77,6 +86,22 @@ public:
     void setQuality(int value);
     int framesPerSecond() const { return m_framesPerSecond; }
     void setFramesPerSecond(int value);
+    bool browserSession() const { return m_browserSession; }
+    QStringList controllers() const { return m_controllers; }
+    bool controlAll() const { return m_controlAll; }
+    bool canControl() const { return m_canControl; }
+    /**
+     * Host: open the shared browser at a site. Requests the demo (a host's
+     * own request starts at once), then runs the browser on this computer
+     * and shares it instead of a captured window.
+     */
+    Q_INVOKABLE bool startBrowser(const QString &url);
+    /** Presenter: let one member (account id) control the browser, or not. */
+    Q_INVOKABLE void setControl(const QString &identity, bool allowed);
+    /** Presenter: let every member control the browser, or nobody. */
+    Q_INVOKABLE void setControlAll(bool allowed);
+    /** Viewer with control: a click, wheel or key on the shared page. */
+    Q_INVOKABLE void sendInput(const QVariantMap &event);
     /** Where the presenter sees their own shared picture (may be null). */
     Q_INVOKABLE void setPreviewSink(QVideoSink *sink);
 
@@ -108,6 +133,7 @@ signals:
     void changed();
     void sourcesChanged();
     void qualityChanged();
+    void controlChanged();
 
 private:
     void roomChanged();
@@ -119,6 +145,11 @@ private:
     void post(const QString &suffix, const QJsonObject &body, bool remove = false);
     void setState(const QString &state, const QString &errorKey = {});
     void publishSources();
+    void pushImage(const QImage &image);
+    void beginBrowser();
+    void onData(const QString &identity, const QByteArray &payload);
+    void announceControl();
+    void syncChannel();
 
     ApiClient *m_api;
     RoomController *m_room;
@@ -146,6 +177,15 @@ private:
     std::unique_ptr<QWindow> m_foreign; // the shared window's handle, wrapped
     QPointer<QVideoSink> m_previewSink;
     int m_quality = 1080, m_framesPerSecond = 15;
+    // Shared browser.
+    class BrowserController *m_browser = nullptr;
+    QString m_pendingBrowser; // site asked for, waiting for the demo to start
+    bool m_browserSession = false;
+    QStringList m_controllers;
+    bool m_controlAll = false, m_canControl = false, m_lastChannelOpen = false;
+    QTimer m_announce;
+    QHash<QString, QPair<qint64, int>> m_rate; // identity -> (second, messages)
+    QElapsedTimer m_clock;
 };
 
 } // namespace katsodi

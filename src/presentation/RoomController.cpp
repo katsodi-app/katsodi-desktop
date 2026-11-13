@@ -201,6 +201,7 @@ void RoomController::applySnapshot(const QJsonObject &body)
     m_demoUrl = !m_demoStatus.isEmpty() && isAcceptableSource(demoUrl) ? demoUrl : QString();
     m_demoUserName = names.value(m_demoUser, QStringLiteral("Katsodi"));
     m_demoPausedByName = names.value(demo.value(QLatin1StringView("paused_by")).toString().toLower());
+    m_demoChannelOpen = !m_demoStatus.isEmpty() && demo.value(QLatin1StringView("annotations_open")).toBool();
 
     std::vector<MessageRecord> messages;
     for (const QJsonValue &item : body.value(QLatin1StringView("messages")).toArray())

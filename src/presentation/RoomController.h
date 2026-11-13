@@ -59,6 +59,10 @@ class RoomController : public QObject {
     Q_PROPERTY(QString demoPausedByName READ demoPausedByName NOTIFY stateChanged)
     /** The demo is the viewer's own (request or presentation). */
     Q_PROPERTY(bool demoMine READ demoMine NOTIFY stateChanged)
+    /** The presenter's account id (their identity in the demo room). */
+    Q_PROPERTY(QString demoUserId READ demoUserId NOTIFY stateChanged)
+    /** A host opened the demo channel to every member (drawing / control). */
+    Q_PROPERTY(bool demoChannelOpen READ demoChannelOpen NOTIFY stateChanged)
 public:
     RoomController(ApiClient *api, Session *session, Preferences *preferences, QObject *parent = nullptr);
 
@@ -91,6 +95,10 @@ public:
     QString demoUrl() const { return m_demoUrl; }
     QString demoUserName() const { return m_demoUserName; }
     QString demoPausedByName() const { return m_demoPausedByName; }
+    QString demoUserId() const { return m_demoUser; }
+    bool demoChannelOpen() const { return m_demoChannelOpen; }
+    /** The signed-in account this room state belongs to (lower case). */
+    QString viewerId() const { return m_viewer.toLower(); }
     bool demoMine() const { return !m_demoStatus.isEmpty() && !m_viewer.isEmpty() && m_demoUser == m_viewer.toLower(); }
     /** Applies a demo record against the server's time (public for tests). */
     static QString currentDemoStatus(const QJsonObject &demo, const QDateTime &serverTime);
@@ -143,6 +151,7 @@ private:
     bool m_queueing = false, m_steering = false;
     qint64 m_playbackStamp = 0;
     QString m_demoStatus, m_demoUrl, m_demoUser, m_demoUserName, m_demoPausedByName;
+    bool m_demoChannelOpen = false;
     void queueAction(const QString &path, bool remove);
     bool m_loading = false, m_joined = false, m_sending = false, m_joining = false, m_inFlight = false;
     quint64 m_generation = 0;

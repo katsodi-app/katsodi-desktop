@@ -447,6 +447,45 @@ private slots:
         QCOMPARE(ScreenController::bitrateFor(1080, 30), 4000000);
     }
 
+    void sharedBrowserControlComesOnlyFromThePresenter()
+    {
+        ApiClient api(QUrl(QStringLiteral("http://127.0.0.1:9")));
+        Preferences preferences(QStringLiteral("Katsodi Test"));
+        Session session(&api, CredentialStore(QStringLiteral("Katsodi Test/session")));
+        RoomController room(&api, &session, &preferences);
+        NullScreenEngine engine;
+        ScreenController screen(&api, &room, &preferences, &engine, nullptr);
+        const QString presenter = QStringLiteral("40000000-0000-4000-8000-000000000004");
+        const QString stranger = QStringLiteral("50000000-0000-4000-8000-000000000005");
+        QJsonObject body = QJsonDocument::fromJson(joinedSnapshot()).object();
+        body.insert("serverTime", "2026-11-13T12:00:00.000Z");
+        body.insert("demo", QJsonObject{{"user_id", presenter}, {"status", "live"}, {"url", "https://example.org/"},
+                                        {"requested_at", "2026-11-13T11:50:00Z"}, {"seen_at", "2026-11-13T11:59:50Z"},
+                                        {"annotations_open", true}});
+        room.applySnapshot(body);
+        QCOMPARE(room.demoStatus(), QStringLiteral("live"));
+        QCOMPARE(room.demoUserId(), presenter);
+        QVERIFY(room.demoChannelOpen());
+
+        const auto control = [](bool all) {
+            return QJsonDocument(QJsonObject{{"t", "control"}, {"all", all}, {"ids", QJsonArray{}}}).toJson(QJsonDocument::Compact);
+        };
+        // Anyone but the presenter announcing control is ignored.
+        emit engine.dataReceived(stranger, control(true));
+        QVERIFY(!screen.canControl());
+        emit engine.dataReceived(presenter.toUpper(), control(true));
+        QVERIFY(screen.canControl());
+        emit engine.dataReceived(presenter, QByteArray("not json"));
+        QVERIFY(screen.canControl());
+        emit engine.dataReceived(presenter, control(false));
+        QVERIFY(!screen.canControl());
+        // Without a shared browser running here, input from others does nothing.
+        emit engine.dataReceived(stranger, QByteArray(R"({"t":"input","type":"text","text":"x"})"));
+        QVERIFY(!screen.browserSession());
+        // Only hosts may open a shared browser; this viewer is a member.
+        QVERIFY(!screen.startBrowser(QStringLiteral("https://example.org/")));
+    }
+
     void playerStaysOffWithoutHelperOrSource()
     {
         ApiClient api(QUrl(QStringLiteral("http://127.0.0.1:9")));

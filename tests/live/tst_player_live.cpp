@@ -146,6 +146,96 @@ private slots:
     void youtube() { exercise("youtube", "https://www.youtube.com/watch?v=aqz-KE-bpKQ"); }
     void vimeo() { exercise("vimeo", "https://vimeo.com/22439234"); }
     void soundcloud() { exercise("soundcloud", "https://soundcloud.com/forss/flickermood"); }
+    // The shared browser (--mode browser): a real site streams JPEG frames,
+    // a member's keys reach the page, the host's own network is refused and
+    // the page keeps painting while its window is off screen.
+    void sharedBrowser()
+    {
+        QProcess browser;
+        QByteArray buffer;
+        QList<QJsonObject> navs;
+        int frames = 0;
+        QImage firstFrame;
+        auto pumpBrowser = [&] {
+            buffer += browser.readAllStandardOutput();
+            qsizetype end;
+            while ((end = buffer.indexOf('\n')) >= 0) {
+                const QJsonObject event = QJsonDocument::fromJson(buffer.left(end)).object();
+                buffer.remove(0, end + 1);
+                const QString kind = event.value("ev").toString();
+                if (kind == "nav")
+                    navs.append(event);
+                else if (kind == "frame") {
+                    ++frames;
+                    if (firstFrame.isNull())
+                        firstFrame = QImage::fromData(QByteArray::fromBase64(event.value("jpeg").toString().toLatin1()), "JPEG");
+                }
+            }
+        };
+        auto wait = [&](const std::function<bool()> &condition, int ms) {
+            QElapsedTimer timer;
+            timer.start();
+            while (timer.elapsed() < ms) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                browser.waitForReadyRead(30);
+                pumpBrowser();
+                if (condition())
+                    return true;
+            }
+            return false;
+        };
+        auto command = [&](const QJsonObject &c) { browser.write(QJsonDocument(c).toJson(QJsonDocument::Compact) + '\n'); };
+        const QString url = [&] { return navs.isEmpty() ? QString() : navs.last().value("url").toString(); }();
+        Q_UNUSED(url);
+        auto current = [&] { return navs.isEmpty() ? QString() : navs.last().value("url").toString(); };
+
+        browser.setProgram(QCoreApplication::applicationDirPath() + "/katsodi-player.exe");
+        browser.setArguments({"--mode", "browser", "--origin", qEnvironmentVariable("KATSODI_API_ORIGIN", "http://127.0.0.1:8787"),
+                              "--parent", QString::number(quintptr(m_window.winId()))});
+        browser.start();
+        QVERIFY(browser.waitForStarted(5000));
+        command({{"op", "geometry"}, {"x", 0}, {"y", 0}, {"w", 960}, {"h", 540}});
+        command({{"op", "visible"}, {"value", true}});
+        command({{"op", "screencast"}, {"fps", 10}, {"maxWidth", 1280}, {"maxHeight", 720}});
+        QElapsedTimer timer;
+        timer.start();
+        command({{"op", "navigate"}, {"url", "https://example.com/"}});
+        QVERIFY2(wait([&] { return current().startsWith("https://example.com") && frames > 0; }, 20000), "no page or frames");
+        qInfo("shared browser: page and first frame after %lld ms; frame %dx%d", timer.elapsed(), firstFrame.width(), firstFrame.height());
+        QVERIFY(!firstFrame.isNull());
+
+        // Keys from a member: Tab to the page's only link, Enter follows it.
+        const int before = navs.size();
+        command({{"op", "input"}, {"type", "key"}, {"action", "down"}, {"key", "Tab"}, {"code", "Tab"}, {"vk", 9}});
+        command({{"op", "input"}, {"type", "key"}, {"action", "up"}, {"key", "Tab"}, {"code", "Tab"}, {"vk", 9}});
+        command({{"op", "input"}, {"type", "key"}, {"action", "down"}, {"key", "Enter"}, {"code", "Enter"}, {"vk", 13}, {"text", "\r"}});
+        command({{"op", "input"}, {"type", "key"}, {"action", "up"}, {"key", "Enter"}, {"code", "Enter"}, {"vk", 13}});
+        QVERIFY2(wait([&] { return navs.size() > before && !current().startsWith("https://example.com"); }, 15000),
+                 "keyboard input did not reach the page");
+        qInfo("member keys followed the link to %s", qPrintable(QUrl(current()).host()));
+
+        // This computer's own network is out of reach.
+        const QString beforeBlocked = current();
+        for (const char *blocked : {"http://127.0.0.1:8787/healthz", "http://192.168.1.1/", "http://localhost/",
+                                    "file:///C:/Windows/win.ini", "http://2130706433/"})
+            command({{"op", "navigate"}, {"url", blocked}});
+        QTest::qWait(3000);
+        pumpBrowser();
+        QCOMPARE(current(), beforeBlocked);
+
+        // Off screen (the host is elsewhere in the app): still painting.
+        command({{"op", "visible"}, {"value", false}});
+        const int framesBefore = frames;
+        command({{"op", "navigate"}, {"url", "https://example.com/?offscreen"}});
+        QVERIFY2(wait([&] { return frames > framesBefore + 1; }, 15000), "no frames while off screen");
+        qInfo("frames while off screen: %d", frames - framesBefore);
+
+        timer.restart();
+        browser.closeWriteChannel();
+        QVERIFY(browser.waitForFinished(5000));
+        qInfo("shared browser exited %lld ms after stdin closed", timer.elapsed());
+    }
+
     void refusesUnsupported()
     {
         ++m_generation;

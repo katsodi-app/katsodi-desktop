@@ -14,6 +14,14 @@
 // - IPC is the anonymous stdin/stdout pipe pair the client created: no
 //   named endpoint another process could connect to. One JSON object per
 //   line, at most 16 KiB, allow-listed commands only.
+// Browser mode (--mode browser): the room's shared browser. The same
+// isolation, but any http(s) site may load (never the host's own network:
+// loopback, private and link-local addresses, .local names); the page is
+// streamed to the client as JPEG frames (DevTools Page.startScreencast) and
+// other members' clicks and keys arrive as "input" commands, dispatched
+// through DevTools Input.* into this page only, with Ctrl/Alt shortcuts
+// filtered (no paste of the host's clipboard, no print or save).
+//
 // - It receives no Katsodi token, secret or file access. The browser profile
 //   is InPrivate in a temporary folder deleted on exit (provider cookies end
 //   with the process). Only the provider-only page of the API origin may
@@ -23,6 +31,9 @@
 //   blocked.
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QHostAddress>
+#include <QRegularExpression>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -123,6 +134,39 @@ LRESULT CALLBACK hostProc(HWND window, UINT message, WPARAM w, LPARAM l)
     return DefWindowProcW(window, message, w, l);
 }
 
+// Hosts a shared browser must never reach: this computer and its network.
+bool privateHost(QString host)
+{
+    host = host.toLower();
+    if (host.endsWith(u'.'))
+        host.chop(1);
+    if (host.isEmpty() || host == QLatin1StringView("localhost") || host.endsWith(QLatin1StringView(".localhost"))
+        || host.endsWith(QLatin1StringView(".local")) || host.endsWith(QLatin1StringView(".internal"))
+        || host.endsWith(QLatin1StringView(".home.arpa")) || host.endsWith(QLatin1StringView(".lan")))
+        return true;
+    if (host.startsWith(u'[') || host.contains(u':'))
+        return true; // IPv6 literals: refused outright
+    static const QRegularExpression letters(QStringLiteral("[g-wyz]"));
+    if (!host.contains(letters)) {
+        // Digits, dots and hex only: an address in some notation.
+        const QHostAddress address(host);
+        if (address.isNull())
+            return true; // decimal/hex/octal forms Chromium would accept
+        const quint32 ip = address.toIPv4Address();
+        const auto in = [ip](quint32 net, int bits) { return (ip >> (32 - bits)) == (net >> (32 - bits)); };
+        return in(0x00000000, 8) || in(0x0A000000, 8) || in(0x7F000000, 8) || in(0xA9FE0000, 16)
+               || in(0xAC100000, 12) || in(0xC0A80000, 16) || in(0x64400000, 10) || ip >= 0xE0000000;
+    }
+    return false;
+}
+
+bool browsable(const QUrl &url)
+{
+    const QString scheme = url.scheme();
+    return (scheme == QLatin1StringView("https") || scheme == QLatin1StringView("http")) && url.userInfo().isEmpty()
+           && !privateHost(url.host());
+}
+
 QString jsString(const QString &value)
 {
     const QByteArray array = QJsonDocument(QJsonArray{value}).toJson(QJsonDocument::Compact);
@@ -141,6 +185,121 @@ struct Player {
     QJsonObject pendingLoad;
     QString lastState;
     RECT bounds{0, 0, 1, 1};
+    // Browser mode.
+    bool browser = false;
+    double cssWidth = 0, cssHeight = 0;
+    int frameInterval = 66; // ms between screencast frames (15 fps)
+    int maxWidth = 1920, maxHeight = 1080;
+    QElapsedTimer sinceFrame;
+    QJsonObject lastNav;
+    QString pendingUrl; // a navigation asked for before the view existed
+
+    void cdp(const QString &method, const QJsonObject &params = {})
+    {
+        if (!view)
+            return;
+        const QByteArray json = QJsonDocument(params).toJson(QJsonDocument::Compact);
+        view->CallDevToolsProtocolMethod(reinterpret_cast<LPCWSTR>(method.utf16()),
+                                         reinterpret_cast<LPCWSTR>(QString::fromUtf8(json).utf16()), nullptr);
+    }
+
+    void startScreencast()
+    {
+        cdp(QStringLiteral("Page.stopScreencast"));
+        cdp(QStringLiteral("Page.startScreencast"),
+            {{"format", "jpeg"}, {"quality", 72}, {"maxWidth", maxWidth}, {"maxHeight", maxHeight}, {"everyNthFrame", 1}});
+    }
+
+    void navigate(const QString &input)
+    {
+        QUrl url = QUrl::fromUserInput(input.trimmed());
+        if (input.size() > 2048 || !browsable(url))
+            return;
+        if (!view) {
+            pendingUrl = url.toString();
+            return;
+        }
+        view->Navigate(reinterpret_cast<LPCWSTR>(url.toString().utf16()));
+    }
+
+    void reportNav()
+    {
+        if (!view)
+            return;
+        LPWSTR source = nullptr, title = nullptr;
+        view->get_Source(&source);
+        view->get_DocumentTitle(&title);
+        BOOL back = FALSE, forward = FALSE;
+        view->get_CanGoBack(&back);
+        view->get_CanGoForward(&forward);
+        const QJsonObject nav{{"ev", "nav"}, {"url", take(source).left(2048)}, {"title", take(title).left(200)},
+                              {"canBack", bool(back)}, {"canForward", bool(forward)}};
+        if (nav != lastNav) {
+            lastNav = nav;
+            emitLine(nav);
+        }
+    }
+
+    // A member's click or key, already allowed by the client; validated again.
+    void input(const QJsonObject &command)
+    {
+        if (cssWidth <= 0 || cssHeight <= 0)
+            return;
+        const QString type = command.value(QLatin1StringView("type")).toString();
+        const QString action = command.value(QLatin1StringView("action")).toString();
+        if (type == QLatin1StringView("mouse")) {
+            const double x = command.value(QLatin1StringView("x")).toDouble(-1);
+            const double y = command.value(QLatin1StringView("y")).toDouble(-1);
+            if (x < 0 || x > 1 || y < 0 || y > 1)
+                return;
+            static const QHash<QString, QString> actions{{"move", "mouseMoved"}, {"down", "mousePressed"},
+                                                         {"up", "mouseReleased"}, {"wheel", "mouseWheel"}};
+            static const QStringList buttons{"none", "left", "middle", "right"};
+            if (!actions.contains(action))
+                return;
+            QString button = command.value(QLatin1StringView("button")).toString(QStringLiteral("none"));
+            if (!buttons.contains(button))
+                button = QStringLiteral("none");
+            QJsonObject params{{"type", actions.value(action)}, {"x", x * cssWidth}, {"y", y * cssHeight},
+                               {"button", action == QLatin1StringView("move") || action == QLatin1StringView("wheel")
+                                              ? QStringLiteral("none") : button},
+                               {"clickCount", qBound(1, command.value(QLatin1StringView("clicks")).toInt(1), 3)}};
+            if (action == QLatin1StringView("wheel")) {
+                params.insert("deltaX", qBound(-2000.0, command.value(QLatin1StringView("dx")).toDouble(), 2000.0));
+                params.insert("deltaY", qBound(-2000.0, command.value(QLatin1StringView("dy")).toDouble(), 2000.0));
+            }
+            cdp(QStringLiteral("Input.dispatchMouseEvent"), params);
+        } else if (type == QLatin1StringView("key")) {
+            const QString key = command.value(QLatin1StringView("key")).toString().left(24);
+            const QString code = command.value(QLatin1StringView("code")).toString().left(32);
+            const int vk = command.value(QLatin1StringView("vk")).toInt();
+            const int modifiers = command.value(QLatin1StringView("modifiers")).toInt() & 0xF;
+            const QString text = command.value(QLatin1StringView("text")).toString().left(4);
+            if (key.isEmpty() || vk < 0 || vk > 255 || (action != QLatin1StringView("down") && action != QLatin1StringView("up")))
+                return;
+            // Alt and Meta never; Ctrl only for editing within the page
+            // (select all, undo, redo, word moves). Paste (host clipboard),
+            // print, save and the like are dropped.
+            if (modifiers & (1 | 4))
+                return;
+            if (modifiers & 2) {
+                static const QStringList allowed{"a", "z", "y", "ArrowLeft", "ArrowRight", "Backspace", "Delete"};
+                if (!allowed.contains(key, Qt::CaseInsensitive))
+                    return;
+            }
+            const bool printable = !text.isEmpty() && !(modifiers & 2) && text.at(0).isPrint();
+            QJsonObject params{{"type", action == QLatin1StringView("up") ? "keyUp" : (printable ? "keyDown" : "rawKeyDown")},
+                               {"key", key}, {"code", code}, {"windowsVirtualKeyCode", vk},
+                               {"nativeVirtualKeyCode", vk}, {"modifiers", modifiers}};
+            if (printable && action == QLatin1StringView("down"))
+                params.insert("text", text);
+            cdp(QStringLiteral("Input.dispatchKeyEvent"), params);
+        } else if (type == QLatin1StringView("text")) {
+            const QString text = command.value(QLatin1StringView("text")).toString();
+            if (!text.isEmpty() && text.size() <= 64)
+                cdp(QStringLiteral("Input.insertText"), {{"text", text}});
+        }
+    }
 
     bool isPage(const QString &uri) const
     {
@@ -175,7 +334,7 @@ struct Player {
 
     void applyBounds()
     {
-        if (!host)
+        if (!host || (browser && !visible))
             return;
         MoveWindow(host, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top, TRUE);
         if (controller) {
@@ -186,6 +345,18 @@ struct Player {
 
     void applyVisible()
     {
+        if (browser) {
+            if (!host)
+                return;
+            ShowWindow(host, SW_SHOWNA);
+            if (!visible)
+                MoveWindow(host, -30000, -30000, bounds.right - bounds.left, bounds.bottom - bounds.top, FALSE);
+            else
+                applyBounds();
+            if (controller)
+                controller->put_IsVisible(TRUE);
+            return;
+        }
         if (host)
             ShowWindow(host, visible ? SW_SHOWNA : SW_HIDE);
         if (controller)
@@ -213,6 +384,10 @@ struct Player {
         }
 
         EventRegistrationToken token;
+        if (browser) {
+            configureBrowser();
+            return;
+        }
         // Only the provider-only page may be the top document.
         view->add_NavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
             [this](ICoreWebView2 *, ICoreWebView2NavigationStartingEventArgs *args) -> HRESULT {
@@ -294,6 +469,121 @@ struct Player {
             return S_OK;
         }).Get(), &token);
     }
+
+    void configureBrowser()
+    {
+        EventRegistrationToken token;
+        auto refuse = [](ICoreWebView2NavigationStartingEventArgs *args) {
+            LPWSTR uri = nullptr;
+            args->get_Uri(&uri);
+            const QUrl url(take(uri));
+            if (!browsable(url) && url.toString() != QLatin1StringView("about:blank"))
+                args->put_Cancel(TRUE);
+        };
+        view->add_NavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
+            [refuse](ICoreWebView2 *, ICoreWebView2NavigationStartingEventArgs *args) -> HRESULT {
+            refuse(args);
+            return S_OK;
+        }).Get(), &token);
+        view->add_FrameNavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
+            [](ICoreWebView2 *, ICoreWebView2NavigationStartingEventArgs *args) -> HRESULT {
+            LPWSTR uri = nullptr;
+            args->get_Uri(&uri);
+            const QUrl url(take(uri));
+            const QString scheme = url.scheme();
+            if (!(browsable(url) || scheme == QLatin1StringView("about") || scheme == QLatin1StringView("data")
+                  || scheme == QLatin1StringView("blob")))
+                args->put_Cancel(TRUE);
+            return S_OK;
+        }).Get(), &token);
+        // Popups open in the same shared page instead of new windows.
+        view->add_NewWindowRequested(Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+            [this](ICoreWebView2 *, ICoreWebView2NewWindowRequestedEventArgs *args) -> HRESULT {
+            args->put_Handled(TRUE);
+            LPWSTR uri = nullptr;
+            args->get_Uri(&uri);
+            navigate(take(uri));
+            return S_OK;
+        }).Get(), &token);
+        view->add_PermissionRequested(Callback<ICoreWebView2PermissionRequestedEventHandler>(
+            [](ICoreWebView2 *, ICoreWebView2PermissionRequestedEventArgs *args) -> HRESULT {
+            args->put_State(COREWEBVIEW2_PERMISSION_STATE_DENY);
+            return S_OK;
+        }).Get(), &token);
+        view->add_ProcessFailed(Callback<ICoreWebView2ProcessFailedEventHandler>(
+            [](ICoreWebView2 *, ICoreWebView2ProcessFailedEventArgs *) -> HRESULT {
+            emitError(QStringLiteral("renderer"));
+            return S_OK;
+        }).Get(), &token);
+        ComPtr<ICoreWebView2_4> view4;
+        if (SUCCEEDED(view.As(&view4)))
+            view4->add_DownloadStarting(Callback<ICoreWebView2DownloadStartingEventHandler>(
+                [](ICoreWebView2 *, ICoreWebView2DownloadStartingEventArgs *args) -> HRESULT {
+                args->put_Cancel(TRUE);
+                args->put_Handled(TRUE);
+                return S_OK;
+            }).Get(), &token);
+        // Every request is checked against this computer's own network.
+        view->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+        view->add_WebResourceRequested(Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+            [this](ICoreWebView2 *, ICoreWebView2WebResourceRequestedEventArgs *args) -> HRESULT {
+            ComPtr<ICoreWebView2WebResourceRequest> request;
+            args->get_Request(&request);
+            LPWSTR uri = nullptr;
+            request->get_Uri(&uri);
+            const QUrl url(take(uri));
+            const QString scheme = url.scheme();
+            if ((scheme == QLatin1StringView("http") || scheme == QLatin1StringView("https")
+                 || scheme == QLatin1StringView("ws") || scheme == QLatin1StringView("wss"))
+                && !privateHost(url.host()))
+                return S_OK;
+            if (scheme == QLatin1StringView("data") || scheme == QLatin1StringView("blob"))
+                return S_OK;
+            ComPtr<ICoreWebView2WebResourceResponse> response;
+            environment->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
+            args->put_Response(response.Get());
+            return S_OK;
+        }).Get(), &token);
+        auto nav = [this]() { reportNav(); };
+        view->add_SourceChanged(Callback<ICoreWebView2SourceChangedEventHandler>(
+            [nav](ICoreWebView2 *, ICoreWebView2SourceChangedEventArgs *) -> HRESULT { nav(); return S_OK; }).Get(), &token);
+        view->add_HistoryChanged(Callback<ICoreWebView2HistoryChangedEventHandler>(
+            [nav](ICoreWebView2 *, IUnknown *) -> HRESULT { nav(); return S_OK; }).Get(), &token);
+        view->add_DocumentTitleChanged(Callback<ICoreWebView2DocumentTitleChangedEventHandler>(
+            [nav](ICoreWebView2 *, IUnknown *) -> HRESULT { nav(); return S_OK; }).Get(), &token);
+        view->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
+            [this](ICoreWebView2 *, ICoreWebView2NavigationCompletedEventArgs *) -> HRESULT {
+            pageReady = true;
+            reportNav();
+            return S_OK;
+        }).Get(), &token);
+
+        // The page as JPEG frames, one in flight; the ack is delayed to cap the rate.
+        ComPtr<ICoreWebView2DevToolsProtocolEventReceiver> receiver;
+        view->GetDevToolsProtocolEventReceiver(L"Page.screencastFrame", &receiver);
+        if (receiver)
+            receiver->add_DevToolsProtocolEventReceived(Callback<ICoreWebView2DevToolsProtocolEventReceivedEventHandler>(
+                [this](ICoreWebView2 *, ICoreWebView2DevToolsProtocolEventReceivedEventArgs *args) -> HRESULT {
+                LPWSTR json = nullptr;
+                args->get_ParameterObjectAsJson(&json);
+                const QJsonObject frame = QJsonDocument::fromJson(take(json).toUtf8()).object();
+                const int session = frame.value(QLatin1StringView("sessionId")).toInt();
+                const QJsonObject meta = frame.value(QLatin1StringView("metadata")).toObject();
+                cssWidth = meta.value(QLatin1StringView("deviceWidth")).toDouble();
+                cssHeight = meta.value(QLatin1StringView("deviceHeight")).toDouble();
+                const QString data = frame.value(QLatin1StringView("data")).toString();
+                if (!data.isEmpty() && data.size() < 8 * 1024 * 1024)
+                    emitLine({{"ev", "frame"}, {"jpeg", data}});
+                const qint64 wait = sinceFrame.isValid() ? qMax<qint64>(0, frameInterval - sinceFrame.elapsed()) : 0;
+                sinceFrame.start();
+                QTimer::singleShot(int(wait), [this, session] {
+                    cdp(QStringLiteral("Page.screencastFrameAck"), {{"sessionId", session}});
+                });
+                return S_OK;
+            }).Get(), &token);
+        cdp(QStringLiteral("Page.enable"));
+        startScreencast();
+    }
 };
 
 } // namespace
@@ -312,6 +602,8 @@ int main(int argc, char *argv[])
             origin = QUrl(args[i + 1]);
         else if (args[i] == QLatin1StringView("--parent"))
             player.parent = HWND(quintptr(args[i + 1].toULongLong()));
+        else if (args[i] == QLatin1StringView("--mode"))
+            player.browser = args[i + 1] == QLatin1StringView("browser");
     }
     if (!acceptableOrigin(origin) || !player.parent || !IsWindow(player.parent)) {
         std::fputs("katsodi-player: --origin <https or loopback origin> --parent <window> required\n", stderr);
@@ -359,6 +651,11 @@ int main(int argc, char *argv[])
     QString flags = QStringLiteral("--autoplay-policy=no-user-gesture-required");
     if (qEnvironmentVariable("KATSODI_PLAYER_LOW") == QLatin1StringView("1"))
         flags += QStringLiteral(" --renderer-process-limit=1");
+    // The shared browser keeps painting for the others while its window is
+    // off screen (the host is on another screen of the app).
+    if (player.browser)
+        flags += QStringLiteral(" --disable-features=CalculateNativeWinOcclusion --disable-renderer-backgrounding"
+                                " --disable-background-timer-throttling");
     options->put_AdditionalBrowserArguments(reinterpret_cast<LPCWSTR>(flags.utf16()));
 
     const HRESULT created = CreateCoreWebView2EnvironmentWithOptions(
@@ -391,7 +688,12 @@ int main(int argc, char *argv[])
             player.configure();
             player.applyBounds();
             player.applyVisible();
-            player.view->Navigate(reinterpret_cast<LPCWSTR>(player.page.toString().utf16()));
+            if (player.browser && !player.pendingUrl.isEmpty())
+                player.view->Navigate(reinterpret_cast<LPCWSTR>(player.pendingUrl.utf16()));
+            else if (player.browser)
+                player.view->Navigate(L"about:blank");
+            else
+                player.view->Navigate(reinterpret_cast<LPCWSTR>(player.page.toString().utf16()));
             emitLine({{QStringLiteral("ev"), QStringLiteral("started")}});
             return S_OK;
         });
@@ -410,7 +712,7 @@ int main(int argc, char *argv[])
     QTimer poll;
     poll.setInterval(500);
     QObject::connect(&poll, &QTimer::timeout, &app, [&player]() {
-        if (!player.pageReady)
+        if (!player.pageReady || player.browser)
             return;
         player.run(QStringLiteral("window.katsodi ? katsodi.poll() : ''"), [&player](const QString &json) {
             // ExecuteScript returns the result JSON-encoded: a string here.
@@ -466,6 +768,22 @@ int main(int argc, char *argv[])
             player.bounds = {LONG(qRound(x * scale)), LONG(qRound(y * scale)), LONG(qRound((x + qMax(1, w)) * scale)),
                              LONG(qRound((y + qMax(1, h)) * scale))};
             player.applyBounds();
+        } else if (player.browser && op == QLatin1StringView("navigate")) {
+            player.navigate(command.value(QLatin1StringView("url")).toString());
+        } else if (player.browser && op == QLatin1StringView("back")) {
+            player.view->GoBack();
+        } else if (player.browser && op == QLatin1StringView("forward")) {
+            player.view->GoForward();
+        } else if (player.browser && op == QLatin1StringView("reload")) {
+            player.view->Reload();
+        } else if (player.browser && op == QLatin1StringView("input")) {
+            player.input(command);
+        } else if (player.browser && op == QLatin1StringView("screencast")) {
+            const int fps = command.value(QLatin1StringView("fps")).toInt(15);
+            player.frameInterval = 1000 / qBound(5, fps, 30);
+            player.maxWidth = qBound(640, command.value(QLatin1StringView("maxWidth")).toInt(1920), 1920);
+            player.maxHeight = qBound(360, command.value(QLatin1StringView("maxHeight")).toInt(1080), 1080);
+            player.startScreencast();
         } else if (op == QLatin1StringView("visible")) {
             player.visible = command.value(QLatin1StringView("value")).toBool();
             player.applyVisible();

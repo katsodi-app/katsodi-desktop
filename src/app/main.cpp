@@ -13,6 +13,7 @@
 #include "presentation/ThemeController.h"
 #include "presentation/VoiceController.h"
 #include "presentation/PlayerController.h"
+#include "presentation/BrowserController.h"
 #include "presentation/ScreenController.h"
 #include "app/PosterImageProvider.h"
 #include "presentation/SearchModel.h"
@@ -148,16 +149,18 @@ int main(int argc, char *argv[])
 #else
     NullScreenEngine screenEngine;
 #endif
-    ScreenController screen(&api, &room, &preferences, &screenEngine);
-    SearchModel search(&rooms, &fandoms);
-    LocalLibrary library(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
-                         + QStringLiteral("/library.sqlite"));
-    Links links;
 #ifdef KATSODI_WITH_PLAYER
     const QString playerHelper = QCoreApplication::applicationDirPath() + QStringLiteral("/katsodi-player.exe");
 #else
     const QString playerHelper;
 #endif
+    // The shared browser runs the same helper in browser mode.
+    BrowserController browser(apiOrigin(), QFileInfo::exists(playerHelper) ? playerHelper : QString());
+    ScreenController screen(&api, &room, &preferences, &screenEngine, &browser);
+    SearchModel search(&rooms, &fandoms);
+    LocalLibrary library(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                         + QStringLiteral("/library.sqlite"));
+    Links links;
     PlayerController player(&room, &preferences, apiOrigin(),
                             QFileInfo::exists(playerHelper) ? playerHelper : QString());
 
@@ -176,6 +179,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Links", &links);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Player", &player);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Demo", &screen);
+    qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Browser", &browser);
     qmlRegisterUncreatableType<ChatModel>("Katsodi.App", 1, 0, "ChatModel", QStringLiteral("owned by Room"));
 
     QQmlApplicationEngine engine;

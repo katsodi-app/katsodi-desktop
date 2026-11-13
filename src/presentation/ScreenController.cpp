@@ -3,6 +3,7 @@
 #include "domain/Text.h"
 #include "infrastructure/api/ApiClient.h"
 #include "presentation/Preferences.h"
+#include "presentation/BrowserController.h"
 #include "presentation/RoomController.h"
 
 #include "platform/ShareSources.h"
@@ -10,6 +11,8 @@
 #include <QBuffer>
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QScreen>
 #include <QUrl>
@@ -28,9 +31,23 @@ bool running(const QString &status)
 } // namespace
 
 ScreenController::ScreenController(ApiClient *api, RoomController *room, Preferences *preferences,
-                                   ScreenEngine *engine, QObject *parent)
-    : QObject(parent), m_api(api), m_room(room), m_preferences(preferences), m_engine(engine)
+                                   ScreenEngine *engine, BrowserController *browser, QObject *parent)
+    : QObject(parent), m_api(api), m_room(room), m_preferences(preferences), m_engine(engine), m_browser(browser)
 {
+    m_clock.start();
+    m_announce.setInterval(5000); // late joiners learn who may control
+    connect(&m_announce, &QTimer::timeout, this, &ScreenController::announceControl);
+    connect(m_engine, &ScreenEngine::dataReceived, this, &ScreenController::onData);
+    if (m_browser) {
+        connect(m_browser, &BrowserController::frame, this, [this](const QImage &image) {
+            if (m_browserSession && m_sharing)
+                pushImage(image);
+        });
+        connect(m_browser, &BrowserController::failed, this, [this] {
+            if (m_browserSession)
+                stopSharing();
+        });
+    }
     m_quality = m_preferences->lowResources() ? 720 : 1080;
     m_beat.setInterval(20000);
     connect(&m_beat, &QTimer::timeout, this, &ScreenController::beat);
@@ -171,6 +188,8 @@ void ScreenController::roomChanged()
         disconnectDemo(); // another room, or none
     }
     if (!active) {
+        m_pendingBrowser.clear();
+        m_canControl = false;
         if (!m_roomId.isEmpty())
             disconnectDemo();
         m_beat.stop();
@@ -187,6 +206,17 @@ void ScreenController::roomChanged()
             stopCapture();
     }
     m_engine->setPaused(m_room->demoStatus() == QLatin1StringView("paused"));
+    if (presenter() && !m_pendingBrowser.isEmpty() && !m_sharing)
+        beginBrowser();
+    // The data grant is in the token: a viewer reconnects when a host opens
+    // or closes the channel, to send (or stop sending) input.
+    if (m_room->demoChannelOpen() != m_lastChannelOpen) {
+        m_lastChannelOpen = m_room->demoChannelOpen();
+        if (!presenter() && !m_room->canControl() && !m_roomId.isEmpty()) {
+            disconnectDemo();
+            connectDemo();
+        }
+    }
     if ((m_wanted || m_sharing || presenter()) && m_roomId.isEmpty())
         connectDemo();
     emit changed();
@@ -375,8 +405,12 @@ void ScreenController::onFrame(const QVideoFrame &frame)
         m_previewSink->setVideoFrame(frame);
     if (!m_connected || !m_mayPublish || m_room->demoStatus() == QLatin1StringView("paused"))
         return;
-    const QImage image = frame.toImage();
-    if (image.isNull())
+    pushImage(frame.toImage());
+}
+
+void ScreenController::pushImage(const QImage &image)
+{
+    if (image.isNull() || !m_connected || !m_mayPublish || m_room->demoStatus() == QLatin1StringView("paused"))
         return;
     if (!m_publishStarted) {
         m_publishStarted = true;
@@ -395,6 +429,15 @@ void ScreenController::stopCapture()
     m_capture.setScreenCapture(nullptr);
     m_capture.setWindowCapture(nullptr);
     m_foreign.reset();
+    if (m_browserSession && m_browser)
+        m_browser->stop();
+    if (m_browserSession) {
+        m_browserSession = false;
+        m_controllers.clear();
+        m_controlAll = false;
+        m_announce.stop();
+        emit controlChanged();
+    }
     if (m_previewSink)
         m_previewSink->setVideoFrame({});
     if (m_publishStarted)
@@ -457,6 +500,142 @@ void ScreenController::stop()
 {
     if (!m_room->demoStatus().isEmpty())
         post({}, {}, true);
+}
+
+bool ScreenController::startBrowser(const QString &url)
+{
+    if (!m_browser || !m_browser->available() || !m_room->canControl() || !m_room->demoStatus().isEmpty()
+        || !isAcceptableSource(url))
+        return false;
+    m_pendingBrowser = url.trimmed();
+    request(m_pendingBrowser);
+    return true;
+}
+
+void ScreenController::beginBrowser()
+{
+    const QString url = std::exchange(m_pendingBrowser, {});
+    QWindow *window = QGuiApplication::focusWindow();
+    if (!window && !QGuiApplication::topLevelWindows().isEmpty())
+        window = QGuiApplication::topLevelWindows().first();
+    if (!presenter() || !m_browser || !window)
+        return;
+    if (!m_roomId.isEmpty() && (!m_connected || !m_mayPublish))
+        disconnectDemo();
+    const QSize box = m_quality >= 1080 ? QSize(1920, 1080) : QSize(1280, 720);
+    if (!m_browser->start(window, url, box, m_framesPerSecond)) {
+        setState(m_state, QStringLiteral("browserFailed"));
+        return;
+    }
+    m_browserSession = true;
+    m_sharing = true;
+    m_publishStarted = false;
+    m_controllers.clear();
+    m_controlAll = false;
+    m_announce.start();
+    emit controlChanged();
+    setState(m_state);
+    if (m_roomId.isEmpty())
+        connectDemo();
+}
+
+void ScreenController::setControl(const QString &identity, bool allowed)
+{
+    if (!m_browserSession || !isUuid(identity) || identity.toLower() == m_room->viewerId())
+        return;
+    const QString id = identity.toLower();
+    if (allowed && !m_controllers.contains(id))
+        m_controllers.append(id);
+    else if (!allowed)
+        m_controllers.removeAll(id);
+    emit controlChanged();
+    announceControl();
+    syncChannel();
+}
+
+void ScreenController::setControlAll(bool allowed)
+{
+    if (!m_browserSession)
+        return;
+    m_controlAll = allowed;
+    if (!allowed)
+        m_controllers.clear();
+    emit controlChanged();
+    announceControl();
+    syncChannel();
+}
+
+void ScreenController::syncChannel()
+{
+    // Members who are not hosts may send data only while a host opened the
+    // demo channel; open it while any of them has control, close it after.
+    bool needed = m_controlAll;
+    for (const QVariant &member : m_room->members()) {
+        const QVariantMap entry = member.toMap();
+        const QString role = entry.value(QStringLiteral("role")).toString();
+        if (m_controllers.contains(entry.value(QStringLiteral("id")).toString().toLower())
+            && role != QLatin1StringView("owner") && role != QLatin1StringView("moderator"))
+            needed = true;
+    }
+    if (m_room->canControl() && needed != m_room->demoChannelOpen())
+        post(QStringLiteral("/annotations"), QJsonObject{{QStringLiteral("open"), needed}});
+}
+
+void ScreenController::announceControl()
+{
+    if (!m_browserSession || !m_connected)
+        return;
+    QJsonArray ids;
+    for (const QString &id : m_controllers)
+        ids.append(id);
+    const QJsonObject message{{"t", "control"}, {"all", m_controlAll}, {"ids", ids}};
+    m_engine->publishData(QJsonDocument(message).toJson(QJsonDocument::Compact), true, {});
+}
+
+void ScreenController::sendInput(const QVariantMap &event)
+{
+    if (!m_canControl || m_sharing || m_room->demoUserId().isEmpty())
+        return;
+    QJsonObject message = QJsonObject::fromVariantMap(event);
+    message.insert(QStringLiteral("t"), QStringLiteral("input"));
+    const QByteArray payload = QJsonDocument(message).toJson(QJsonDocument::Compact);
+    // Pointer moves may be lost; clicks, wheel and keys must arrive.
+    const bool reliable = !(event.value(QStringLiteral("type")) == QLatin1StringView("mouse")
+                            && event.value(QStringLiteral("action")) == QLatin1StringView("move"));
+    m_engine->publishData(payload, reliable, m_room->demoUserId());
+}
+
+void ScreenController::onData(const QString &identity, const QByteArray &payload)
+{
+    const QJsonObject message = QJsonDocument::fromJson(payload).object();
+    const QString kind = message.value(QLatin1StringView("t")).toString();
+    const QString sender = identity.toLower();
+    if (kind == QLatin1StringView("control")) {
+        // Only the presenter says who may control.
+        if (m_sharing || sender != m_room->demoUserId())
+            return;
+        const QString me = m_room->viewerId();
+        bool allowed = message.value(QLatin1StringView("all")).toBool();
+        for (const QJsonValue &id : message.value(QLatin1StringView("ids")).toArray())
+            allowed = allowed || id.toString() == me;
+        if (allowed != m_canControl) {
+            m_canControl = allowed;
+            emit controlChanged();
+        }
+        return;
+    }
+    if (kind != QLatin1StringView("input") || !m_browserSession || !m_browser)
+        return;
+    if (!m_controlAll && !m_controllers.contains(sender))
+        return;
+    // At most 80 messages a second from one member.
+    const qint64 second = m_clock.elapsed() / 1000;
+    auto &rate = m_rate[sender];
+    if (rate.first != second)
+        rate = {second, 0};
+    if (++rate.second > 80)
+        return;
+    m_browser->input(message);
 }
 
 } // namespace katsodi

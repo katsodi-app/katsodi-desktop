@@ -35,6 +35,12 @@ public:
     virtual void stopPublishing() = 0;
     /** Where the presenter's received screen is shown (may be null). */
     virtual void setVideoSink(QVideoSink *sink) = 0;
+    /**
+     * A small message on the shared-browser channel (topic
+     * "katsodi-cobrowse", at most 4 KiB), to one participant or, with an
+     * empty destination, to everyone. The token must allow data.
+     */
+    virtual void publishData(const QByteArray &payload, bool reliable, const QString &destination) = 0;
 
 signals:
     void connected(quint64 generation);
@@ -44,6 +50,8 @@ signals:
     void remoteScreenChanged(bool present, QSize size);
     void publishingChanged(bool publishing);
     void publishFailed();
+    /** A message on the shared-browser channel from a participant. */
+    void dataReceived(const QString &identity, const QByteArray &payload);
 };
 
 /** Builds without the LiveKit SDK: screen sharing is shown as unavailable. */
@@ -59,6 +67,7 @@ public:
     void setPaused(bool) override {}
     void stopPublishing() override {}
     void setVideoSink(QVideoSink *) override {}
+    void publishData(const QByteArray &, bool, const QString &) override {}
 };
 
 } // namespace katsodi

@@ -19,7 +19,9 @@
 param(
   [Parameter(Mandatory = $true)][ValidateSet("configure", "build", "test", "run", "install", "installer")][string]$Action,
   [ValidateSet("windows-dev", "windows-release")][string]$Preset = "windows-dev",
-  [string]$Prefix = ""
+  [string]$Prefix = "",
+  # build only: one target (e.g. tst_player_live) instead of everything
+  [string]$Target = ""
 )
 $ErrorActionPreference = "Stop"
 $source = Split-Path -Parent $PSScriptRoot
@@ -54,7 +56,8 @@ try {
     "configure" { cmake --preset $Preset; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
     "build" {
       if (-not (Test-Path "build\$Preset\CMakeCache.txt")) { cmake --preset $Preset; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
-      cmake --build --preset $Preset; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      if ($Target) { cmake --build --preset $Preset --target $Target } else { cmake --build --preset $Preset }
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
     }
     "test" { ctest --preset $Preset; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
     "run" { & "build\$Preset\Katsodi.exe" }

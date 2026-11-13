@@ -8,6 +8,7 @@
 
 #include "media/livekit/LiveKitScreenEngine.h"
 #include "platform/ShareSources.h"
+#include "presentation/BrowserController.h"
 #include "presentation/ScreenController.h"
 
 #include <QCapturableWindow>
@@ -21,6 +22,8 @@
 #include <QVideoFrame>
 #include <QVideoSink>
 #include <QWindow>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QWindowCapture>
 
 #include <algorithm>
@@ -45,7 +48,7 @@ protected:
 
 class ScreenLive : public QObject {
     Q_OBJECT
-    QString m_url, m_presenter, m_viewer;
+    QString m_url, m_presenter, m_viewer, m_viewerOpen;
 
     static bool waitFor(const std::function<bool()> &condition, int ms)
     {
@@ -66,6 +69,7 @@ private slots:
         m_url = qEnvironmentVariable("KATSODI_LK_URL");
         m_presenter = qEnvironmentVariable("KATSODI_LK_TOKEN_A");
         m_viewer = qEnvironmentVariable("KATSODI_LK_TOKEN_B");
+        m_viewerOpen = qEnvironmentVariable("KATSODI_LK_TOKEN_C");
     }
 
     // The picker's list (Win32) finds a real window with a preview and icon,
@@ -119,6 +123,77 @@ private slots:
         QCOMPARE(ScreenController::publishedSize({2560, 1440}, 720), QSize(1280, 720));
         QCOMPARE(ScreenController::publishedSize({801, 603}, 1080), QSize(800, 600));
         QCOMPARE(ScreenController::publishedSize({1444, 822}, 1080), QSize(1444, 820));
+    }
+
+    // The shared browser end to end: the presenter's real browser (helper in
+    // browser mode) streams through LiveKit; a viewer whose token carries the
+    // data grant sends keys that reach that browser; a viewer without it
+    // cannot get a message through at all (LiveKit refuses it).
+    void sharedBrowserOverLiveKit()
+    {
+        if (m_url.isEmpty() || m_viewerOpen.isEmpty())
+            QSKIP("run tools/screen-live-check.mjs");
+        LiveKitScreenEngine presenter, viewer, closedViewer;
+        QVideoSink sink;
+        viewer.setVideoSink(&sink);
+        QSignalSpy up(&presenter, &ScreenEngine::connected);
+        QSignalSpy viewerUp(&viewer, &ScreenEngine::connected);
+        QSignalSpy closedUp(&closedViewer, &ScreenEngine::connected);
+        presenter.connectRoom(1, m_url, m_presenter);
+        viewer.connectRoom(1, m_url, m_viewerOpen);
+        closedViewer.connectRoom(1, m_url, m_viewer);
+        QVERIFY(waitFor([&] { return up.count() && viewerUp.count() && closedUp.count(); }, 20000));
+
+        Pattern window;
+        window.resize(960, 540);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        BrowserController browser(QUrl(QStringLiteral("http://127.0.0.1:8787")),
+                                  QCoreApplication::applicationDirPath() + "/katsodi-player.exe");
+        bool started = false;
+        connect(&browser, &BrowserController::frame, this, [&](const QImage &image) {
+            if (!started) {
+                started = true;
+                presenter.startPublishing(ScreenController::publishedSize(image.size(), 720), 15, 1'500'000);
+            }
+            presenter.pushFrame(image);
+        });
+        QVERIFY(browser.start(&window, QStringLiteral("https://example.com/"), QSize(1280, 720), 15));
+        browser.setSurface(&window, 0, 0, 960, 540, true);
+        int received = 0;
+        connect(&sink, &QVideoSink::videoFrameChanged, this, [&](const QVideoFrame &) { ++received; });
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY2(waitFor([&] { return received > 0; }, 20000), "the viewer saw no shared browser frame");
+        qInfo("viewer: first shared-browser frame after %lld ms", timer.elapsed());
+
+        // Input arrives at the presenter only from a viewer with the data grant.
+        QStringList senders;
+        connect(&presenter, &ScreenEngine::dataReceived, this, [&](const QString &identity, const QByteArray &payload) {
+            senders.append(identity);
+            browser.input(QJsonDocument::fromJson(payload).object());
+        });
+        const auto key = [](const char *action, const char *name, int vk) {
+            return QJsonDocument(QJsonObject{{"t", "input"}, {"type", "key"}, {"action", action}, {"key", name},
+                                             {"code", name}, {"vk", vk}, {"text", vk == 13 && QByteArray(action) == "down" ? "\r" : ""}})
+                .toJson(QJsonDocument::Compact);
+        };
+        closedViewer.publishData(key("down", "Tab", 9), true, QStringLiteral("native-presenter"));
+        QTest::qWait(2000);
+        QVERIFY2(senders.isEmpty(), "a viewer without the data grant got a message through");
+        timer.restart();
+        for (const auto &message : {key("down", "Tab", 9), key("up", "Tab", 9), key("down", "Enter", 13), key("up", "Enter", 13)})
+            viewer.publishData(message, true, QStringLiteral("native-presenter"));
+        QVERIFY2(waitFor([&] { return browser.url().contains("iana.org"); }, 15000), "the viewer's keys did not reach the browser");
+        qInfo("viewer keys reached the presenter's browser in %lld ms (now %s); senders %s", timer.elapsed(),
+              qPrintable(QUrl(browser.url()).host()), qPrintable(senders.join(',')));
+        QVERIFY(senders.size() == 4 && senders.first() == QStringLiteral("native-viewer-open"));
+
+        browser.stop();
+        presenter.disconnectRoom();
+        viewer.disconnectRoom();
+        closedViewer.disconnectRoom();
+        QTest::qWait(800);
     }
 
     void presenterToViewer()

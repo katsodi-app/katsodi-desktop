@@ -34,6 +34,7 @@ public:
     void setPaused(bool paused) override;
     void stopPublishing() override;
     void setVideoSink(QVideoSink *sink) override;
+    void publishData(const QByteArray &payload, bool reliable, const QString &destination) override;
 
     struct Session; // SDK objects of one connection, owned by the worker thread
 

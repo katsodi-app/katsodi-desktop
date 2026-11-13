@@ -22,6 +22,9 @@ namespace katsodi {
 
 namespace {
 constexpr const char *kScreenTrack = "demo";
+// The website's drawing uses topic "demo"; the shared browser has its own.
+constexpr const char *kBrowserTopic = "katsodi-cobrowse";
+constexpr std::size_t kMaxMessage = 4096;
 } // namespace
 
 /** One connection to the demo SFU room. */
@@ -121,6 +124,18 @@ struct LiveKitScreenEngine::Session : livekit::RoomDelegate {
         }
         if (mine)
             stopWatching();
+    }
+    void onUserPacketReceived(livekit::Room &, const livekit::UserDataPacketEvent &event) override
+    {
+        if (!event.participant || event.topic != kBrowserTopic || event.data.empty() || event.data.size() > kMaxMessage)
+            return;
+        {
+            std::lock_guard lock(mutex);
+            if (closing)
+                return;
+        }
+        emit engine->dataReceived(QString::fromStdString(event.participant->identity()),
+                                  QByteArray(reinterpret_cast<const char *>(event.data.data()), qsizetype(event.data.size())));
     }
     void onDisconnected(livekit::Room &, const livekit::DisconnectedEvent &event) override
     {
@@ -336,6 +351,25 @@ void LiveKitScreenEngine::stopPublishing()
         session->track.reset();
         session->source.reset();
         emit publishingChanged(false);
+    });
+}
+
+void LiveKitScreenEngine::publishData(const QByteArray &payload, bool reliable, const QString &destination)
+{
+    if (payload.isEmpty() || payload.size() > qsizetype(kMaxMessage))
+        return;
+    onWorker([this, payload, reliable, destination = destination.toStdString()] {
+        auto session = m_session;
+        if (!session || !session->room)
+            return;
+        auto local = session->room->localParticipant().lock();
+        if (!local)
+            return;
+        const std::vector<std::uint8_t> bytes(payload.begin(), payload.end());
+        std::vector<std::string> to;
+        if (!destination.empty())
+            to.push_back(destination);
+        local->publishData(bytes, reliable, to, kBrowserTopic);
     });
 }
 

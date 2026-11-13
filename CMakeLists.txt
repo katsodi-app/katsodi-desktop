@@ -70,6 +70,7 @@ qt_add_library(katsodi_core STATIC
   src/media/VoiceEngine.h
   src/media/ScreenEngine.h
   src/presentation/ScreenController.h src/presentation/ScreenController.cpp
+  src/presentation/BrowserController.h src/presentation/BrowserController.cpp
   src/platform/ShareSources.h src/platform/ShareSources.cpp
 )
 if(LiveKit_FOUND)
@@ -118,6 +119,9 @@ if(LiveKit_FOUND)
   katsodi_warnings(tst_voice_live)
   qt_add_executable(tst_screen_live tests/live/tst_screen_live.cpp)
   target_link_libraries(tst_screen_live PRIVATE katsodi_core Qt6::Test)
+  if(KATSODI_PLAYER)
+    add_dependencies(tst_screen_live katsodi_player)
+  endif()
   set_target_properties(tst_screen_live PROPERTIES WIN32_EXECUTABLE FALSE)
   katsodi_warnings(tst_screen_live)
 endif()
@@ -160,6 +164,8 @@ qt_add_qml_module(katsodi
     qml/screens/PlayerStage.qml
     qml/screens/DemoPanel.qml
     qml/screens/SharePicker.qml
+    qml/screens/BrowserDisclaimer.qml
+    qml/screens/BrowserAccess.qml
     qml/screens/FandomScreen.qml
     qml/screens/VoicePanel.qml
     qml/screens/FandomsScreen.qml
@@ -246,7 +252,7 @@ if(KATSODI_PLAYER)
   set_target_properties(katsodi_player PROPERTIES OUTPUT_NAME "katsodi-player")
   target_include_directories(katsodi_player PRIVATE "${KATSODI_WEBVIEW2_DIR}/build/native/include")
   # The static loader: no WebView2Loader.dll to ship.
-  target_link_libraries(katsodi_player PRIVATE Qt6::Core
+  target_link_libraries(katsodi_player PRIVATE Qt6::Core Qt6::Network
     "${KATSODI_WEBVIEW2_DIR}/build/native/x64/WebView2LoaderStatic.lib"
     ole32 oleaut32 user32 gdi32 advapi32 shell32 version)
   katsodi_warnings(katsodi_player)
