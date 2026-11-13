@@ -219,11 +219,15 @@ void PlayerController::shutdown()
 {
     if (!m_helper)
         return;
-    m_helper->setProperty("stopping", true);
-    m_helper->closeWriteChannel();
-    if (!m_helper->waitForFinished(2000))
-        m_helper->kill();
-    m_helper->waitForFinished(1000);
+    // Synchronous stop: the finished handler (which clears m_helper) must
+    // not run in the middle of it.
+    QProcess *helper = std::exchange(m_helper, nullptr);
+    disconnect(helper, nullptr, this, nullptr);
+    helper->closeWriteChannel();
+    if (!helper->waitForFinished(2000))
+        helper->kill();
+    helper->waitForFinished(1000);
+    delete helper;
 }
 
 void PlayerController::retry()

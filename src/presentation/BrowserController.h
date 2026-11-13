@@ -37,6 +37,8 @@ public:
 
     bool available() const { return !m_helperPath.isEmpty(); }
     bool running() const { return m_helper != nullptr; }
+    /** The helper's process id (its browser processes are its children). */
+    quint32 processId() const { return m_helper ? quint32(m_helper->processId()) : 0; }
     QString url() const { return m_url; }
     QString title() const { return m_title; }
     bool canBack() const { return m_canBack; }

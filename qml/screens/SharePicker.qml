@@ -228,13 +228,15 @@ Popup {
                         onSelected: (value) => Demo.framesPerSecond = Number(value)
                     }
                 }
-                Text {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: I18n.s.demoNoAudio
-                    color: K.muted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    wrapMode: Text.WordWrap
+                    spacing: 6
+                    Text { text: I18n.s.demoAudio; color: K.muted; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.Bold }
+                    KSwitch {
+                        checked: Demo.shareAudio
+                        onToggled: Demo.shareAudio = checked
+                        Accessible.name: I18n.s.demoAudio
+                    }
                 }
                 KButton {
                     kind: "ghost"

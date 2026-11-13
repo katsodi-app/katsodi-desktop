@@ -47,7 +47,7 @@ const exe = path.join(root, "native-desktop/build/windows-dev/tst_screen_live.ex
 const qt = path.resolve(root, "../KatsodiToolchain/Qt/6.11.3/msvc2022_64/bin");
 console.log(`room ${room} on ${new URL(url).host}`);
 const report = path.join(process.env.TEMP || root, `katsodi-screen-live-${process.pid}.txt`);
-const result = spawnSync(exe, ["-o", `${report},txt`], {
+const result = spawnSync(exe, [...process.argv.slice(2), "-o", `${report},txt`], {
   stdio: "inherit",
   env: {
     ...process.env,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media/ScreenEngine.h"
+#include "platform/ProcessAudio.h"
 #include "platform/ShareSources.h"
 
 #include <QCapturableWindow>
@@ -67,6 +68,13 @@ class ScreenController : public QObject {
     Q_PROPERTY(bool controlAll READ controlAll NOTIFY controlChanged)
     /** Viewer: the presenter lets this viewer control the shared browser. */
     Q_PROPERTY(bool canControl READ canControl NOTIFY controlChanged)
+    /** Presenter: share the sound too (on by default). */
+    Q_PROPERTY(bool shareAudio READ shareAudio WRITE setShareAudio NOTIFY audioChanged)
+    /** Presenter: "off", "window" (one app), "system" (all but Katsodi) or "unavailable". */
+    Q_PROPERTY(QString audioState READ audioState NOTIFY audioChanged)
+    /** Viewer: the presenter's sound is being played. */
+    Q_PROPERTY(bool remoteAudio READ remoteAudio NOTIFY audioChanged)
+    Q_PROPERTY(bool remoteAudioMuted READ remoteAudioMuted WRITE setRemoteAudioMuted NOTIFY audioChanged)
 public:
     ScreenController(ApiClient *api, RoomController *room, Preferences *preferences, ScreenEngine *engine,
                      class BrowserController *browser, QObject *parent = nullptr);
@@ -90,6 +98,12 @@ public:
     QStringList controllers() const { return m_controllers; }
     bool controlAll() const { return m_controlAll; }
     bool canControl() const { return m_canControl; }
+    bool shareAudio() const { return m_shareAudio; }
+    void setShareAudio(bool value);
+    QString audioState() const { return m_audioState; }
+    bool remoteAudio() const { return m_remoteAudio; }
+    bool remoteAudioMuted() const { return m_remoteAudioMuted; }
+    void setRemoteAudioMuted(bool value);
     /**
      * Host: open the shared browser at a site. Requests the demo (a host's
      * own request starts at once), then runs the browser on this computer
@@ -134,6 +148,7 @@ signals:
     void sourcesChanged();
     void qualityChanged();
     void controlChanged();
+    void audioChanged();
 
 private:
     void roomChanged();
@@ -150,6 +165,8 @@ private:
     void onData(const QString &identity, const QByteArray &payload);
     void announceControl();
     void syncChannel();
+    void startSound();
+    void stopSound();
 
     ApiClient *m_api;
     RoomController *m_room;
@@ -186,6 +203,11 @@ private:
     QTimer m_announce;
     QHash<QString, QPair<qint64, int>> m_rate; // identity -> (second, messages)
     QElapsedTimer m_clock;
+    // Shared sound.
+    ProcessAudio m_audio;
+    bool m_shareAudio = true, m_remoteAudio = false, m_remoteAudioMuted = false;
+    QString m_audioState = QStringLiteral("off");
+    quint32 m_shareProcess = 0; // the shared window's process (0: a screen)
 };
 
 } // namespace katsodi

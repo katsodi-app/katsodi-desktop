@@ -1,5 +1,6 @@
 #pragma once
 #include "media/ScreenEngine.h"
+#include "media/ShareAudioPlayer.h"
 
 #include <QMutex>
 #include <QThread>
@@ -35,6 +36,11 @@ public:
     void stopPublishing() override;
     void setVideoSink(QVideoSink *sink) override;
     void publishData(const QByteArray &payload, bool reliable, const QString &destination) override;
+    void startAudio() override;
+    void pushAudio(std::vector<std::int16_t> &&chunk) override;
+    void stopAudio() override;
+    void setRemoteAudioMuted(bool muted) override;
+    ShareAudioPlayer *player() { return &m_player; }
 
     struct Session; // SDK objects of one connection, owned by the worker thread
 
@@ -44,6 +50,8 @@ public:
 private:
     void onWorker(std::function<void()> work);
     void endSession();
+    void encode(Session &session, const QImage &image);
+    void repeatPicture();
 
     QThread m_thread;
     QObject *m_worker = nullptr;
@@ -54,6 +62,8 @@ private:
     QImage m_pendingFrame; // the newest captured frame not yet encoded
     std::atomic<bool> m_frameQueued{false};
 
+    ShareAudioPlayer m_player; // the presenter's sound, for viewers
+    std::atomic<int> m_audioQueued{0};
     QMutex m_sinkMutex;
     QPointer<QVideoSink> m_sink;
     // Shared with queued deliveries, which may run after this engine is gone.

@@ -210,6 +210,7 @@ ApplicationWindow {
     // popup covers the stage, since nothing can be drawn over it.
     Binding { target: Player; property: "obscured"; value: search.visible || create.visible }
     Binding { target: Browser; property: "obscured"; value: search.visible || create.visible }
+    Binding { target: Demo; property: "remoteAudioMuted"; value: true; when: Voice.deafened }
     Connections {
         target: Player
         function onExternalRequested(url) { Links.openExternal(url) }

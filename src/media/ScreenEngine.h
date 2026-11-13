@@ -4,6 +4,9 @@
 #include <QPointer>
 #include <QString>
 
+#include <cstdint>
+#include <vector>
+
 class QVideoSink;
 
 namespace katsodi {
@@ -41,6 +44,13 @@ public:
      * empty destination, to everyone. The token must allow data.
      */
     virtual void publishData(const QByteArray &payload, bool reliable, const QString &destination) = 0;
+    /** Publishes the shared window's or browser's sound (48 kHz stereo). */
+    virtual void startAudio() = 0;
+    /** 20 ms of 48 kHz stereo 16-bit PCM; thread-safe. */
+    virtual void pushAudio(std::vector<std::int16_t> &&chunk) = 0;
+    virtual void stopAudio() = 0;
+    /** Viewer: mute the received demo sound (e.g. while deafened). */
+    virtual void setRemoteAudioMuted(bool muted) = 0;
 
 signals:
     void connected(quint64 generation);
@@ -52,6 +62,8 @@ signals:
     void publishFailed();
     /** A message on the shared-browser channel from a participant. */
     void dataReceived(const QString &identity, const QByteArray &payload);
+    /** Whether the presenter's sound is being received and played. */
+    void remoteAudioChanged(bool present);
 };
 
 /** Builds without the LiveKit SDK: screen sharing is shown as unavailable. */
@@ -68,6 +80,10 @@ public:
     void stopPublishing() override {}
     void setVideoSink(QVideoSink *) override {}
     void publishData(const QByteArray &, bool, const QString &) override {}
+    void startAudio() override {}
+    void pushAudio(std::vector<std::int16_t> &&) override {}
+    void stopAudio() override {}
+    void setRemoteAudioMuted(bool) override {}
 };
 
 } // namespace katsodi

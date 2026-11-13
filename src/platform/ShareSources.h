@@ -27,4 +27,7 @@ struct ShareSource {
 /** Lists shareable windows with previews. Safe to call on a worker thread. */
 QList<ShareSource> listWindowSources(quint32 excludeProcess);
 
+/** The process that owns a window (0 when unknown). */
+quint32 windowProcess(quintptr window);
+
 } // namespace katsodi

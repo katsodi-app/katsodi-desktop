@@ -113,8 +113,15 @@ QList<ShareSource> listWindowSources(quint32 excludeProcess)
     }
     return sources;
 }
+quint32 windowProcess(quintptr window)
+{
+    DWORD process = 0;
+    GetWindowThreadProcessId(reinterpret_cast<HWND>(window), &process);
+    return process;
+}
 #else
 QList<ShareSource> listWindowSources(quint32) { return {}; }
+quint32 windowProcess(quintptr) { return 0; }
 #endif
 
 } // namespace katsodi

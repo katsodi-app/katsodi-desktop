@@ -7,6 +7,7 @@
 // Qt Multimedia), never the screen or another application.
 
 #include "media/livekit/LiveKitScreenEngine.h"
+#include "platform/ProcessAudio.h"
 #include "platform/ShareSources.h"
 #include "presentation/BrowserController.h"
 #include "presentation/ScreenController.h"
@@ -24,7 +25,14 @@
 #include <QWindow>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QAudioFormat>
+#include <QAudioSink>
+#include <QBuffer>
+#include <QMediaDevices>
 #include <QWindowCapture>
+#include <QtMath>
+
+#include <cmath>
 
 #include <algorithm>
 #include <memory>
@@ -113,6 +121,10 @@ private slots:
         int frames = 0;
         connect(&sink, &QVideoSink::videoFrameChanged, this, [&](const QVideoFrame &frame) { frames += frame.isValid(); });
         windowCapture.start();
+        // Windows Graphics Capture may wait for a change: keep the window painting.
+        QTimer animate;
+        connect(&animate, &QTimer::timeout, &window, [&] { ++window.tick; window.update(); });
+        animate.start(50);
         QVERIFY2(waitFor([&] { return frames > 0; }, 10000), "no frame from the window captured by handle");
         windowCapture.stop();
     }
@@ -151,7 +163,9 @@ private slots:
         BrowserController browser(QUrl(QStringLiteral("http://127.0.0.1:8787")),
                                   QCoreApplication::applicationDirPath() + "/katsodi-player.exe");
         bool started = false;
+        int browserFrames = 0;
         connect(&browser, &BrowserController::frame, this, [&](const QImage &image) {
+            ++browserFrames;
             if (!started) {
                 started = true;
                 presenter.startPublishing(ScreenController::publishedSize(image.size(), 720), 15, 1'500'000);
@@ -164,7 +178,10 @@ private slots:
         connect(&sink, &QVideoSink::videoFrameChanged, this, [&](const QVideoFrame &) { ++received; });
         QElapsedTimer timer;
         timer.start();
-        QVERIFY2(waitFor([&] { return received > 0; }, 20000), "the viewer saw no shared browser frame");
+        const bool seen = waitFor([&] { return received > 0; }, 20000);
+        qInfo("browser frames %d, publishing started %d, browser url %s, error %s", browserFrames, int(started),
+              qPrintable(browser.url()), qPrintable(browser.errorKey()));
+        QVERIFY2(seen, "the viewer saw no shared browser frame");
         qInfo("viewer: first shared-browser frame after %lld ms", timer.elapsed());
 
         // Input arrives at the presenter only from a viewer with the data grant.
@@ -193,6 +210,67 @@ private slots:
         presenter.disconnectRoom();
         viewer.disconnectRoom();
         closedViewer.disconnectRoom();
+        QTest::qWait(800);
+    }
+
+    // The demo's sound: this process plays a quiet tone, process loopback
+    // capture picks it up, the presenter publishes it as screen-share audio
+    // and a viewer receives it (its own playback muted).
+    void shareAudioOverLiveKit()
+    {
+        if (m_url.isEmpty())
+            QSKIP("run tools/screen-live-check.mjs");
+        // A 440 Hz tone, played very quietly by this process.
+        QAudioFormat format;
+        format.setSampleRate(48000);
+        format.setChannelCount(2);
+        format.setSampleFormat(QAudioFormat::Int16);
+        QByteArray pcm(48000 * 2 * 2 * 6, Qt::Uninitialized); // 6 s
+        auto *samples = reinterpret_cast<qint16 *>(pcm.data());
+        for (int i = 0; i < 48000 * 6; ++i)
+            samples[2 * i] = samples[2 * i + 1] = qint16(8000 * std::sin(2 * M_PI * 440 * i / 48000.0));
+        QBuffer tone(&pcm);
+        tone.open(QIODevice::ReadOnly);
+        QAudioSink speaker(QMediaDevices::defaultAudioOutput(), format);
+        speaker.setVolume(0.05);
+        speaker.start(&tone);
+
+        std::atomic<int> chunks{0};
+        std::atomic<double> peak{0};
+        LiveKitScreenEngine presenter, viewer;
+        viewer.setRemoteAudioMuted(true);
+        QSignalSpy up(&presenter, &ScreenEngine::connected);
+        QSignalSpy viewerUp(&viewer, &ScreenEngine::connected);
+        QSignalSpy heard(&viewer, &ScreenEngine::remoteAudioChanged);
+        presenter.connectRoom(1, m_url, m_presenter);
+        viewer.connectRoom(1, m_url, m_viewer);
+        QVERIFY(waitFor([&] { return up.count() && viewerUp.count(); }, 20000));
+        presenter.startAudio();
+
+        ProcessAudio capture;
+        QElapsedTimer timer;
+        timer.start();
+        const bool started = capture.start(quint32(QCoreApplication::applicationPid()), true,
+                                           [&](std::vector<std::int16_t> &&chunk) {
+            double local = 0;
+            for (std::int16_t v : chunk)
+                local = std::max(local, std::abs(double(v)));
+            if (local > peak)
+                peak = local;
+            ++chunks;
+            presenter.pushAudio(std::move(chunk));
+        });
+        QVERIFY2(started, "process loopback capture did not start");
+        QVERIFY2(waitFor([&] { return chunks > 50 && peak > 50; }, 8000), qPrintable(QString("peak %1").arg(peak.load())));
+        qInfo("captured %d chunks of 20 ms, peak %.0f, in %lld ms", chunks.load(), peak.load(), timer.elapsed());
+        QVERIFY2(waitFor([&] { return !heard.isEmpty() && heard.first().at(0).toBool(); }, 15000),
+                 "the viewer received no demo sound");
+        qInfo("viewer received the demo sound %lld ms after capture started", timer.elapsed());
+        capture.stop();
+        speaker.stop();
+        presenter.stopAudio();
+        presenter.disconnectRoom();
+        viewer.disconnectRoom();
         QTest::qWait(800);
     }
 

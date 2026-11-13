@@ -72,6 +72,8 @@ qt_add_library(katsodi_core STATIC
   src/presentation/ScreenController.h src/presentation/ScreenController.cpp
   src/presentation/BrowserController.h src/presentation/BrowserController.cpp
   src/platform/ShareSources.h src/platform/ShareSources.cpp
+  src/platform/ProcessAudio.h src/platform/ProcessAudio.cpp
+  src/media/ShareAudioPlayer.h src/media/ShareAudioPlayer.cpp
 )
 if(LiveKit_FOUND)
   target_sources(katsodi_core PRIVATE
@@ -84,7 +86,7 @@ endif()
 target_include_directories(katsodi_core PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(katsodi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml Qt6::Sql Qt6::Multimedia)
 if(WIN32)
-  target_link_libraries(katsodi_core PUBLIC advapi32 user32 gdi32 dwmapi)
+  target_link_libraries(katsodi_core PUBLIC advapi32 user32 gdi32 dwmapi ole32 mmdevapi)
 endif()
 qt_add_resources(katsodi_core "katsodi_data"
   PREFIX "/katsodi"

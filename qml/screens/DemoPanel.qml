@@ -418,6 +418,18 @@ ColumnLayout {
                 font.weight: Font.DemiBold
             }
         }
+        // The presenter's sound, for viewers: on or off.
+        IconButton {
+            visible: Demo.remoteAudio && !Demo.sharing
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 12
+            z: 2
+            diameter: 36
+            iconName: Demo.remoteAudioMuted ? "headphonesOff" : "headphones"
+            tip: Demo.remoteAudioMuted ? I18n.s.demoSoundOn : I18n.s.demoSoundOff
+            onClicked: Demo.remoteAudioMuted = !Demo.remoteAudioMuted
+        }
         Text {
             anchors.centerIn: parent
             width: parent.width - 40
@@ -436,7 +448,9 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: panel.running && (Demo.sharing || (Demo.errorKey !== "" && Demo.state !== "error"))
         text: Demo.errorKey !== "" ? (I18n.s[Demo.errorKey] || I18n.s.errorServer)
-              : I18n.s.demoNoAudio + "  ·  " + I18n.s.demoQualityNote.replace("{size}", Demo.quality + "p").replace("{fps}", Demo.framesPerSecond)
+              : (({ window: I18n.s.demoAudioWindow, system: I18n.s.demoAudioSystem, unavailable: I18n.s.demoAudioUnavailable })[Demo.audioState]
+                    || I18n.s.demoAudioOff)
+                + "  ·  " + I18n.s.demoQualityNote.replace("{size}", Demo.quality + "p").replace("{fps}", Demo.framesPerSecond)
         color: Demo.errorKey !== "" ? Theme.c.danger : K.muted
         font.family: Theme.fontFamily
         font.pixelSize: 12

@@ -38,6 +38,15 @@ ScreenController::ScreenController(ApiClient *api, RoomController *room, Prefere
     m_announce.setInterval(5000); // late joiners learn who may control
     connect(&m_announce, &QTimer::timeout, this, &ScreenController::announceControl);
     connect(m_engine, &ScreenEngine::dataReceived, this, &ScreenController::onData);
+    connect(m_engine, &ScreenEngine::remoteAudioChanged, this, [this](bool present) {
+        m_remoteAudio = present;
+        emit audioChanged();
+    });
+    connect(&m_audio, &ProcessAudio::failed, this, [this] {
+        m_engine->stopAudio();
+        m_audioState = QStringLiteral("unavailable");
+        emit audioChanged();
+    });
     if (m_browser) {
         connect(m_browser, &BrowserController::frame, this, [this](const QImage &image) {
             if (m_browserSession && m_sharing)
@@ -384,6 +393,7 @@ void ScreenController::share(int index)
         m_capture.setWindowCapture(&m_windowCapture);
         m_windowCapture.start();
     }
+    m_shareProcess = source.kind == ShareSource::Kind::Window ? windowProcess(source.window) : 0;
     m_sharing = true;
     m_publishStarted = false;
     m_sinceFrame.invalidate();
@@ -416,6 +426,7 @@ void ScreenController::pushImage(const QImage &image)
         m_publishStarted = true;
         m_engine->startPublishing(publishedSize(image.size(), m_quality), m_framesPerSecond,
                                   bitrateFor(m_quality, m_framesPerSecond));
+        startSound();
     }
     m_engine->pushFrame(image);
 }
@@ -429,6 +440,7 @@ void ScreenController::stopCapture()
     m_capture.setScreenCapture(nullptr);
     m_capture.setWindowCapture(nullptr);
     m_foreign.reset();
+    stopSound();
     if (m_browserSession && m_browser)
         m_browser->stop();
     if (m_browserSession) {
@@ -636,6 +648,63 @@ void ScreenController::onData(const QString &identity, const QByteArray &payload
     if (++rate.second > 80)
         return;
     m_browser->input(message);
+}
+
+void ScreenController::setShareAudio(bool value)
+{
+    if (value == m_shareAudio)
+        return;
+    m_shareAudio = value;
+    emit audioChanged();
+    if (m_sharing && m_publishStarted)
+        value ? startSound() : stopSound();
+}
+
+void ScreenController::setRemoteAudioMuted(bool value)
+{
+    if (value == m_remoteAudioMuted)
+        return;
+    m_remoteAudioMuted = value;
+    m_engine->setRemoteAudioMuted(value);
+    emit audioChanged();
+}
+
+void ScreenController::startSound()
+{
+    if (!m_shareAudio || m_audio.running())
+        return;
+    // The browser's or the window's application, with its child processes;
+    // for a whole screen, everything but Katsodi (voice, room video, player).
+    quint32 process = 0;
+    bool include = true;
+    if (m_browserSession && m_browser) {
+        process = m_browser->processId();
+    } else if (m_shareProcess) {
+        process = m_shareProcess;
+    } else {
+        process = quint32(QCoreApplication::applicationPid());
+        include = false;
+    }
+    ScreenEngine *engine = m_engine;
+    const bool started = process && m_audio.start(process, include, [engine](std::vector<std::int16_t> &&chunk) {
+        engine->pushAudio(std::move(chunk));
+    });
+    if (started)
+        m_engine->startAudio();
+    m_audioState = started ? (include ? QStringLiteral("window") : QStringLiteral("system")) : QStringLiteral("unavailable");
+    emit audioChanged();
+}
+
+void ScreenController::stopSound()
+{
+    if (m_audio.running()) {
+        m_audio.stop();
+        m_engine->stopAudio();
+    }
+    if (m_audioState != QLatin1StringView("off")) {
+        m_audioState = QStringLiteral("off");
+        emit audioChanged();
+    }
 }
 
 } // namespace katsodi
