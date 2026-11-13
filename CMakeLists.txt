@@ -217,7 +217,7 @@ install(SCRIPT ${KATSODI_DEPLOY_SCRIPT})
 # WebView2 (tools/install-webview2.py); the client starts it on demand
 # (src/presentation/PlayerController). Without the SDK the client builds
 # and offers "open in browser" only.
-set(KATSODI_WEBVIEW2_DIR "$ENV{KATSODI_WEBVIEW2_DIR}")
+file(TO_CMAKE_PATH "$ENV{KATSODI_WEBVIEW2_DIR}" KATSODI_WEBVIEW2_DIR)
 if(WIN32 AND EXISTS "${KATSODI_WEBVIEW2_DIR}/build/native/include/WebView2.h")
   set(KATSODI_PLAYER TRUE)
 else()
