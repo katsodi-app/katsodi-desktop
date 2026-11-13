@@ -110,6 +110,9 @@ AbstractButton {
                 width: card.tile * 0.34
                 height: width * 1.42
                 radius: 10
+                framed: true
+                rotation: K.still ? 0 : (card.hovered ? 0 : 4)
+                Behavior on rotation { NumberAnimation { duration: K.base; easing.type: K.easing } }
                 art: card.fandomArt
                 initials: Fandoms.nameOf(card.fandomId).charAt(0)
             }

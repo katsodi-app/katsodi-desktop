@@ -24,7 +24,8 @@ Item {
         source: backdrop.photo ? editorialBase + "space-1600.webp" : ""
         asynchronous: true
         fillMode: Image.PreserveAspectCrop
-        sourceSize.width: Math.min(1600, Math.ceil(width * Screen.devicePixelRatio))
+        // Under the veil a 1280 px decode looks the same and saves ~8 MiB.
+        sourceSize.width: Math.min(1280, Math.ceil(width * Screen.devicePixelRatio))
         opacity: status === Image.Ready ? 0.9 : 0
         Behavior on opacity { NumberAnimation { duration: K.slow } }
     }
