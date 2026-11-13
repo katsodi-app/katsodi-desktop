@@ -15,7 +15,7 @@ set(KATSODI_CHANNEL "development" CACHE STRING "development or production")
 set_property(CACHE KATSODI_CHANNEL PROPERTY STRINGS development production)
 set(KATSODI_PRODUCTION_ORIGIN "https://katsodi.watch")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Sql Test)
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Sql Multimedia Test)
 
 # Voice: the official LiveKit C++ SDK, prebuilt (tools/install-livekit.py).
 # Without it the client still builds and shows voice as unavailable.
@@ -68,15 +68,19 @@ qt_add_library(katsodi_core STATIC
   src/presentation/PlayerController.h src/presentation/PlayerController.cpp
   src/infrastructure/storage/LocalLibrary.h src/infrastructure/storage/LocalLibrary.cpp
   src/media/VoiceEngine.h
+  src/media/ScreenEngine.h
+  src/presentation/ScreenController.h src/presentation/ScreenController.cpp
 )
 if(LiveKit_FOUND)
   target_sources(katsodi_core PRIVATE
-    src/media/livekit/LiveKitVoiceEngine.h src/media/livekit/LiveKitVoiceEngine.cpp)
+    src/media/livekit/LiveKitSdk.h src/media/livekit/LiveKitSdk.cpp
+    src/media/livekit/LiveKitVoiceEngine.h src/media/livekit/LiveKitVoiceEngine.cpp
+    src/media/livekit/LiveKitScreenEngine.h src/media/livekit/LiveKitScreenEngine.cpp)
   target_link_libraries(katsodi_core PUBLIC LiveKit::livekit)
   target_compile_definitions(katsodi_core PUBLIC KATSODI_WITH_LIVEKIT=1)
 endif()
 target_include_directories(katsodi_core PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(katsodi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml Qt6::Sql)
+target_link_libraries(katsodi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml Qt6::Sql Qt6::Multimedia)
 if(WIN32)
   target_link_libraries(katsodi_core PUBLIC advapi32)
 endif()
@@ -105,11 +109,16 @@ katsodi_warnings(tst_core)
 set_target_properties(tst_core PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME core COMMAND tst_core)
 if(LiveKit_FOUND)
-  # Live check against a real LiveKit server; run tools/voice-live-check.mjs.
+  # Live checks against a real LiveKit server: tools/voice-live-check.mjs and
+  # tools/screen-live-check.mjs (LiveKit DLLs are copied next to tst_core).
   qt_add_executable(tst_voice_live tests/live/tst_voice_live.cpp)
   target_link_libraries(tst_voice_live PRIVATE katsodi_core Qt6::Test)
   set_target_properties(tst_voice_live PROPERTIES WIN32_EXECUTABLE FALSE)
   katsodi_warnings(tst_voice_live)
+  qt_add_executable(tst_screen_live tests/live/tst_screen_live.cpp)
+  target_link_libraries(tst_screen_live PRIVATE katsodi_core Qt6::Test)
+  set_target_properties(tst_screen_live PROPERTIES WIN32_EXECUTABLE FALSE)
+  katsodi_warnings(tst_screen_live)
 endif()
 set_tests_properties(core PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
@@ -146,6 +155,7 @@ qt_add_qml_module(katsodi
     qml/screens/FandomCard.qml
     qml/screens/RoomScreen.qml
     qml/screens/PlayerStage.qml
+    qml/screens/DemoPanel.qml
     qml/screens/VoicePanel.qml
     qml/screens/FandomsScreen.qml
     qml/screens/LibraryScreen.qml

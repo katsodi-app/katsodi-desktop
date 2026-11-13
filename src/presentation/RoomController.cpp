@@ -53,6 +53,9 @@ void RoomController::close()
     m_members.clear();
     m_queue.clear();
     m_playback.clear();
+    m_demoStatus.clear();
+    m_demoUrl.clear();
+    m_demoUser.clear();
     m_playbackPosition = 0;
     m_queueing = false;
     m_joined = false;
@@ -189,6 +192,16 @@ void RoomController::applySnapshot(const QJsonObject &body)
         }
     }
 
+    // The link demo, when current (same rule as demoCurrent on the website).
+    const QJsonObject demo = body.value(QLatin1StringView("demo")).toObject();
+    const auto serverNow = parseTimestamp(body.value(QLatin1StringView("serverTime")).toString());
+    m_demoStatus = serverNow ? currentDemoStatus(demo, *serverNow) : QString();
+    m_demoUser = m_demoStatus.isEmpty() ? QString() : demo.value(QLatin1StringView("user_id")).toString().toLower();
+    const QString demoUrl = demo.value(QLatin1StringView("url")).toString();
+    m_demoUrl = !m_demoStatus.isEmpty() && isAcceptableSource(demoUrl) ? demoUrl : QString();
+    m_demoUserName = names.value(m_demoUser, QStringLiteral("Katsodi"));
+    m_demoPausedByName = names.value(demo.value(QLatin1StringView("paused_by")).toString().toLower());
+
     std::vector<MessageRecord> messages;
     for (const QJsonValue &item : body.value(QLatin1StringView("messages")).toArray())
         if (auto message = parseMessage(item.toObject()))
@@ -245,6 +258,22 @@ void RoomController::join()
         emit sendChanged();
         load(true);
     });
+}
+
+QString RoomController::currentDemoStatus(const QJsonObject &demo, const QDateTime &serverTime)
+{
+    const QString status = demo.value(QLatin1StringView("status")).toString();
+    if (!isUuid(demo.value(QLatin1StringView("user_id")).toString()))
+        return {};
+    if (status == QLatin1StringView("pending")) {
+        const auto requested = parseTimestamp(demo.value(QLatin1StringView("requested_at")).toString());
+        return requested && requested->msecsTo(serverTime) < 10 * 60000 ? status : QString();
+    }
+    if (status == QLatin1StringView("live") || status == QLatin1StringView("paused")) {
+        const auto seen = parseTimestamp(demo.value(QLatin1StringView("seen_at")).toString());
+        return seen && seen->msecsTo(serverTime) < 60000 ? status : QString();
+    }
+    return {};
 }
 
 bool RoomController::canControl() const

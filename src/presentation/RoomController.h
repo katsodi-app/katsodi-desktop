@@ -2,6 +2,8 @@
 #include "domain/Records.h"
 #include "presentation/ChatModel.h"
 
+#include <QDateTime>
+#include <QJsonObject>
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
@@ -50,6 +52,13 @@ class RoomController : public QObject {
     /** Server time of the last timeline change, ms since epoch (0 = none). */
     Q_PROPERTY(qint64 playbackStamp READ playbackStamp NOTIFY stateChanged)
     Q_PROPERTY(bool steering READ steering NOTIFY sendChanged)
+    /** The room's current link demo: "pending", "live", "paused" or "". */
+    Q_PROPERTY(QString demoStatus READ demoStatus NOTIFY stateChanged)
+    Q_PROPERTY(QString demoUrl READ demoUrl NOTIFY stateChanged)
+    Q_PROPERTY(QString demoUserName READ demoUserName NOTIFY stateChanged)
+    Q_PROPERTY(QString demoPausedByName READ demoPausedByName NOTIFY stateChanged)
+    /** The demo is the viewer's own (request or presentation). */
+    Q_PROPERTY(bool demoMine READ demoMine NOTIFY stateChanged)
 public:
     RoomController(ApiClient *api, Session *session, Preferences *preferences, QObject *parent = nullptr);
 
@@ -78,6 +87,13 @@ public:
     QString syncKind() const;
     qint64 playbackStamp() const { return m_playbackStamp; }
     bool steering() const { return m_steering; }
+    QString demoStatus() const { return m_demoStatus; }
+    QString demoUrl() const { return m_demoUrl; }
+    QString demoUserName() const { return m_demoUserName; }
+    QString demoPausedByName() const { return m_demoPausedByName; }
+    bool demoMine() const { return !m_demoStatus.isEmpty() && !m_viewer.isEmpty() && m_demoUser == m_viewer.toLower(); }
+    /** Applies a demo record against the server's time (public for tests). */
+    static QString currentDemoStatus(const QJsonObject &demo, const QDateTime &serverTime);
     /** Removes a queued link (its author or a host; the server decides). */
     Q_INVOKABLE void removeFromQueue(const QString &itemId);
     /** Host: makes a queued link the room's source now. */
@@ -126,6 +142,7 @@ private:
     double m_playbackPosition = 0;
     bool m_queueing = false, m_steering = false;
     qint64 m_playbackStamp = 0;
+    QString m_demoStatus, m_demoUrl, m_demoUser, m_demoUserName, m_demoPausedByName;
     void queueAction(const QString &path, bool remove);
     bool m_loading = false, m_joined = false, m_sending = false, m_joining = false, m_inFlight = false;
     quint64 m_generation = 0;

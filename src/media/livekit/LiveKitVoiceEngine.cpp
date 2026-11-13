@@ -1,4 +1,5 @@
 #include "media/livekit/LiveKitVoiceEngine.h"
+#include "media/livekit/LiveKitSdk.h"
 
 #include <livekit/livekit.h>
 #include <livekit/platform_audio.h>
@@ -14,22 +15,6 @@ namespace katsodi {
 namespace {
 constexpr const char *kMicrophoneTrack = "microphone";
 
-// livekit::initialize/shutdown are process-wide: the SDK stays up while
-// any engine exists and shuts down with the last one.
-std::mutex g_sdkMutex;
-int g_sdkUsers = 0;
-void acquireSdk()
-{
-    std::lock_guard lock(g_sdkMutex);
-    if (g_sdkUsers++ == 0)
-        livekit::initialize(livekit::LogLevel::Warn);
-}
-void releaseSdk()
-{
-    std::lock_guard lock(g_sdkMutex);
-    if (--g_sdkUsers == 0)
-        livekit::shutdown();
-}
 } // namespace
 
 /** One connection: SDK room, platform audio and the delegate. */
@@ -150,7 +135,7 @@ LiveKitVoiceEngine::LiveKitVoiceEngine(QObject *parent) : VoiceEngine(parent)
     m_worker->moveToThread(&m_thread);
     connect(&m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     m_thread.start();
-    onWorker([] { acquireSdk(); });
+    onWorker([] { livekitsdk::acquire(); });
 }
 
 LiveKitVoiceEngine::~LiveKitVoiceEngine()
@@ -158,7 +143,7 @@ LiveKitVoiceEngine::~LiveKitVoiceEngine()
     // Leave synchronously so no microphone, speaker or socket outlives us.
     QMetaObject::invokeMethod(m_worker, [this] {
         endCall();
-        releaseSdk();
+        livekitsdk::release();
     }, Qt::BlockingQueuedConnection);
     m_thread.quit();
     m_thread.wait();

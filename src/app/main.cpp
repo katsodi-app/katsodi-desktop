@@ -13,11 +13,13 @@
 #include "presentation/ThemeController.h"
 #include "presentation/VoiceController.h"
 #include "presentation/PlayerController.h"
+#include "presentation/ScreenController.h"
 #include "app/PosterImageProvider.h"
 #include "presentation/SearchModel.h"
 #include "infrastructure/storage/LocalLibrary.h"
 #ifdef KATSODI_WITH_LIVEKIT
 #include "media/livekit/LiveKitVoiceEngine.h"
+#include "media/livekit/LiveKitScreenEngine.h"
 #endif
 
 #include <QDesktopServices>
@@ -141,6 +143,12 @@ int main(int argc, char *argv[])
     NullVoiceEngine voiceEngine;
 #endif
     VoiceController voice(&api, &room, &voiceEngine);
+#ifdef KATSODI_WITH_LIVEKIT
+    LiveKitScreenEngine screenEngine;
+#else
+    NullScreenEngine screenEngine;
+#endif
+    ScreenController screen(&api, &room, &preferences, &screenEngine);
     SearchModel search(&rooms, &fandoms);
     LocalLibrary library(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
                          + QStringLiteral("/library.sqlite"));
@@ -167,6 +175,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Library", &library);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Links", &links);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Player", &player);
+    qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Demo", &screen);
     qmlRegisterUncreatableType<ChatModel>("Katsodi.App", 1, 0, "ChatModel", QStringLiteral("owned by Room"));
 
     QQmlApplicationEngine engine;
@@ -200,6 +209,7 @@ int main(int argc, char *argv[])
         // Quitting ends the call first: microphone and speakers are released.
         voice.leave();
         player.shutdown();
+        screen.shutdown();
         room.close();
         const bool maximized = window->windowStates() & Qt::WindowMaximized;
         if (!maximized)

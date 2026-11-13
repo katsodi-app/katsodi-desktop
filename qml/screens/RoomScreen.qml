@@ -217,6 +217,10 @@ Item {
                             onClicked: Links.openExternal(Room.source)
                         }
                     }
+                    DemoPanel {
+                        Layout.fillWidth: true
+                        visible: Room.joined && !Room.closed && Demo.available
+                    }
                     PlayerStage {
                         Layout.fillWidth: true
                         visible: Room.syncKind !== "" && Player.available
