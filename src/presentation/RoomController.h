@@ -43,6 +43,13 @@ class RoomController : public QObject {
     /** Seconds into the source at the moment of the last snapshot, estimated. */
     Q_PROPERTY(double playbackPosition READ playbackPosition NOTIFY stateChanged)
     Q_PROPERTY(bool queueing READ queueing NOTIFY sendChanged)
+    /** Owner or moderator: may play from the queue and steer the shared timeline. */
+    Q_PROPERTY(bool canControl READ canControl NOTIFY stateChanged)
+    /** "youtube", "vimeo", "soundcloud" or "" for the current source. */
+    Q_PROPERTY(QString syncKind READ syncKind NOTIFY stateChanged)
+    /** Server time of the last timeline change, ms since epoch (0 = none). */
+    Q_PROPERTY(qint64 playbackStamp READ playbackStamp NOTIFY stateChanged)
+    Q_PROPERTY(bool steering READ steering NOTIFY sendChanged)
 public:
     RoomController(ApiClient *api, Session *session, Preferences *preferences, QObject *parent = nullptr);
 
@@ -67,6 +74,19 @@ public:
     QString playback() const { return m_playback; }
     double playbackPosition() const { return m_playbackPosition; }
     bool queueing() const { return m_queueing; }
+    bool canControl() const;
+    QString syncKind() const;
+    qint64 playbackStamp() const { return m_playbackStamp; }
+    bool steering() const { return m_steering; }
+    /** Removes a queued link (its author or a host; the server decides). */
+    Q_INVOKABLE void removeFromQueue(const QString &itemId);
+    /** Host: makes a queued link the room's source now. */
+    Q_INVOKABLE void playFromQueue(const QString &itemId);
+    /**
+     * Host: publishes play/pause at a position (seconds) for the current,
+     * synchronizable source. False when not allowed locally.
+     */
+    Q_INVOKABLE bool setPlayback(const QString &state, double position);
     /** Adds a link to the queue; false when the link is not acceptable. */
     Q_INVOKABLE bool addToQueue(const QString &url);
 
@@ -104,7 +124,9 @@ private:
     QVariantList m_members, m_queue;
     QString m_playback;
     double m_playbackPosition = 0;
-    bool m_queueing = false;
+    bool m_queueing = false, m_steering = false;
+    qint64 m_playbackStamp = 0;
+    void queueAction(const QString &path, bool remove);
     bool m_loading = false, m_joined = false, m_sending = false, m_joining = false, m_inFlight = false;
     quint64 m_generation = 0;
 };

@@ -50,6 +50,7 @@ public:
 
     void get(const QString &path, QObject *context, Done done);
     void post(const QString &path, const QJsonObject &body, QObject *context, Done done);
+    void del(const QString &path, QObject *context, Done done);
 
     /** Unauthenticated GET for public bootstrap data. */
     void getPublic(const QString &path, QObject *context, Done done);

@@ -65,6 +65,7 @@ qt_add_library(katsodi_core STATIC
   src/presentation/RoomController.h src/presentation/RoomController.cpp
   src/presentation/VoiceController.h src/presentation/VoiceController.cpp
   src/presentation/SearchModel.h src/presentation/SearchModel.cpp
+  src/presentation/PlayerController.h src/presentation/PlayerController.cpp
   src/infrastructure/storage/LocalLibrary.h src/infrastructure/storage/LocalLibrary.cpp
   src/media/VoiceEngine.h
 )
@@ -144,6 +145,7 @@ qt_add_qml_module(katsodi
     qml/screens/RoomCard.qml
     qml/screens/FandomCard.qml
     qml/screens/RoomScreen.qml
+    qml/screens/PlayerStage.qml
     qml/screens/VoicePanel.qml
     qml/screens/FandomsScreen.qml
     qml/screens/LibraryScreen.qml
@@ -210,3 +212,34 @@ qt_generate_deploy_qml_app_script(
 )
 install(SCRIPT ${KATSODI_DEPLOY_SCRIPT})
 
+# --- Provider-player helper (optional) ------------------------------------
+# A separate process hosting official provider embeds in Microsoft Edge
+# WebView2 (tools/install-webview2.py); the client starts it on demand
+# (src/presentation/PlayerController). Without the SDK the client builds
+# and offers "open in browser" only.
+set(KATSODI_WEBVIEW2_DIR "$ENV{KATSODI_WEBVIEW2_DIR}")
+if(WIN32 AND EXISTS "${KATSODI_WEBVIEW2_DIR}/build/native/include/WebView2.h")
+  set(KATSODI_PLAYER TRUE)
+else()
+  set(KATSODI_PLAYER FALSE)
+endif()
+message(STATUS "Provider player helper (WebView2): ${KATSODI_PLAYER}")
+if(KATSODI_PLAYER)
+  qt_add_executable(katsodi_player WIN32 src/provider-helper/main.cpp)
+  set_target_properties(katsodi_player PROPERTIES OUTPUT_NAME "katsodi-player")
+  target_include_directories(katsodi_player PRIVATE "${KATSODI_WEBVIEW2_DIR}/build/native/include")
+  # The static loader: no WebView2Loader.dll to ship.
+  target_link_libraries(katsodi_player PRIVATE Qt6::Core
+    "${KATSODI_WEBVIEW2_DIR}/build/native/x64/WebView2LoaderStatic.lib"
+    ole32 oleaut32 user32 gdi32 advapi32 shell32 version)
+  katsodi_warnings(katsodi_player)
+  add_dependencies(katsodi katsodi_player)
+  target_compile_definitions(katsodi PRIVATE KATSODI_WITH_PLAYER=1)
+  install(TARGETS katsodi_player RUNTIME DESTINATION bin)
+  install(FILES "${KATSODI_WEBVIEW2_DIR}/LICENSE.txt" DESTINATION licenses RENAME WebView2-SDK-LICENSE.txt)
+  # Live check against the real providers (needs npm run native:api).
+  qt_add_executable(tst_player_live tests/live/tst_player_live.cpp)
+  target_link_libraries(tst_player_live PRIVATE Qt6::Quick Qt6::Test user32 gdi32)
+  set_target_properties(tst_player_live PROPERTIES WIN32_EXECUTABLE FALSE)
+  add_dependencies(tst_player_live katsodi_player)
+endif()

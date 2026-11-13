@@ -30,6 +30,16 @@ bool isAcceptableSource(const QString &url);
 /** Up to two initials for an artwork fallback, as on the website. */
 QString initials(const QString &name);
 
+/** The 11-character YouTube id of a watch/shorts/live/embed/youtu.be link, as on the website. */
+QString youtubeVideoId(const QString &url);
+
+/**
+ * Providers with an official player API the room can synchronize:
+ * "youtube", "vimeo", "soundcloud" (a single track) or "" (independent
+ * playback). Mirrors syncSource() in src/lib/playback.ts.
+ */
+QString syncSource(const QString &url);
+
 /** Replaces {key} placeholders. Unknown keys stay as written. */
 QString formatText(QString text, const QString &key, const QString &value);
 

@@ -217,10 +217,15 @@ Item {
                             onClicked: Links.openExternal(Room.source)
                         }
                     }
+                    PlayerStage {
+                        Layout.fillWidth: true
+                        visible: Room.syncKind !== "" && Player.available
+                        maxVideoHeight: Math.max(180, stage.height * 0.55)
+                    }
                     Text {
                         Layout.fillWidth: true
-                        visible: Room.source !== ""
-                        text: I18n.s.stageProvider
+                        visible: Room.source !== "" && !(Room.syncKind !== "" && Player.available)
+                        text: Room.syncKind === "" ? I18n.s.playerOpenOutside : I18n.s.playerUnavailable
                         color: K.muted
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
@@ -309,6 +314,22 @@ Item {
                                     color: K.muted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11
+                                }
+                                IconButton {
+                                    visible: Room.canControl
+                                    diameter: 32
+                                    iconName: "play"
+                                    tip: I18n.s.queuePlayNow
+                                    enabled: !Room.queueing
+                                    onClicked: Room.playFromQueue(modelData.id)
+                                }
+                                IconButton {
+                                    visible: modelData.mine || Room.canControl
+                                    diameter: 32
+                                    iconName: "trash"
+                                    tip: I18n.s.queueRemove
+                                    enabled: !Room.queueing
+                                    onClicked: Room.removeFromQueue(modelData.id)
                                 }
                             }
                         }

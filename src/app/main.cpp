@@ -12,6 +12,7 @@
 #include "presentation/Strings.h"
 #include "presentation/ThemeController.h"
 #include "presentation/VoiceController.h"
+#include "presentation/PlayerController.h"
 #include "app/PosterImageProvider.h"
 #include "presentation/SearchModel.h"
 #include "infrastructure/storage/LocalLibrary.h"
@@ -21,6 +22,7 @@
 
 #include <QDesktopServices>
 #include <QDir>
+#include <QFileInfo>
 #include <QFont>
 #include <QQmlContext>
 #include <QGuiApplication>
@@ -143,6 +145,13 @@ int main(int argc, char *argv[])
     LocalLibrary library(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
                          + QStringLiteral("/library.sqlite"));
     Links links;
+#ifdef KATSODI_WITH_PLAYER
+    const QString playerHelper = QCoreApplication::applicationDirPath() + QStringLiteral("/katsodi-player.exe");
+#else
+    const QString playerHelper;
+#endif
+    PlayerController player(&room, &preferences, apiOrigin(),
+                            QFileInfo::exists(playerHelper) ? playerHelper : QString());
 
     QGuiApplication::setFont(QFont(theme.fontFamily(), 10));
 
@@ -157,6 +166,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Search", &search);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Library", &library);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Links", &links);
+    qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Player", &player);
     qmlRegisterUncreatableType<ChatModel>("Katsodi.App", 1, 0, "ChatModel", QStringLiteral("owned by Room"));
 
     QQmlApplicationEngine engine;
@@ -189,6 +199,7 @@ int main(int argc, char *argv[])
         // Quitting ends the room's polling and pings with the process.
         // Quitting ends the call first: microphone and speakers are released.
         voice.leave();
+        player.shutdown();
         room.close();
         const bool maximized = window->windowStates() & Qt::WindowMaximized;
         if (!maximized)

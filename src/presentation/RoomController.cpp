@@ -158,7 +158,8 @@ void RoomController::applySnapshot(const QJsonObject &body)
         m_queue.append(QVariantMap{{QStringLiteral("id"), id},
                                    {QStringLiteral("url"), url},
                                    {QStringLiteral("host"), QUrl(url).host()},
-                                   {QStringLiteral("addedBy"), names.value(addedBy.toLower())}});
+                                   {QStringLiteral("addedBy"), names.value(addedBy.toLower())},
+                                   {QStringLiteral("mine"), !m_viewer.isEmpty() && addedBy.toLower() == m_viewer.toLower()}});
         if (m_queue.size() >= 300)
             break;
     }
@@ -166,6 +167,7 @@ void RoomController::applySnapshot(const QJsonObject &body)
     const QString state = playback.value(QLatin1StringView("state")).toString();
     m_playback = state == QLatin1StringView("playing") || state == QLatin1StringView("paused") ? state : QString();
     m_playbackPosition = 0;
+    m_playbackStamp = 0;
     if (!m_playback.isEmpty()) {
         const double position = playback.value(QLatin1StringView("position")).toDouble();
         const auto updated = parseTimestamp(playback.value(QLatin1StringView("updated_at")).toString());
@@ -176,6 +178,15 @@ void RoomController::applySnapshot(const QJsonObject &body)
             elapsed = std::max<qint64>(0, updated->msecsTo(*server)) / 1000.0;
         if (std::isfinite(position) && position >= 0 && position <= 172800)
             m_playbackPosition = position + elapsed;
+        // Changes are told apart by the server's own timestamp.
+        if (updated)
+            m_playbackStamp = updated->toMSecsSinceEpoch();
+        // A timeline of an earlier source does not apply to the current one.
+        if (playback.value(QLatin1StringView("source_url")).toString() != m_room.url) {
+            m_playback.clear();
+            m_playbackPosition = 0;
+            m_playbackStamp = 0;
+        }
     }
 
     std::vector<MessageRecord> messages;
@@ -234,6 +245,75 @@ void RoomController::join()
         emit sendChanged();
         load(true);
     });
+}
+
+bool RoomController::canControl() const
+{
+    return m_joined && !m_room.closed
+           && (m_role == QLatin1StringView("owner") || m_role == QLatin1StringView("moderator"));
+}
+
+QString RoomController::syncKind() const { return syncSource(m_room.url); }
+
+void RoomController::queueAction(const QString &path, bool remove)
+{
+    if (m_roomId.isEmpty() || m_queueing || !m_joined)
+        return;
+    m_queueing = true;
+    m_actionErrorKey.clear();
+    emit sendChanged();
+    const quint64 generation = m_generation;
+    auto done = [this, generation](const QJsonObject &, const ApiError *error) {
+        if (generation != m_generation)
+            return;
+        m_queueing = false;
+        m_actionErrorKey = error ? error->messageKey : QString();
+        emit sendChanged();
+        load(true);
+    };
+    if (remove)
+        m_api->del(path, this, done);
+    else
+        m_api->post(path, {}, this, done);
+}
+
+void RoomController::removeFromQueue(const QString &itemId)
+{
+    if (!isUuid(itemId))
+        return;
+    queueAction(QStringLiteral("/api/native/v1/rooms/%1/queue/%2").arg(m_roomId, itemId), true);
+}
+
+void RoomController::playFromQueue(const QString &itemId)
+{
+    if (!isUuid(itemId) || !canControl())
+        return;
+    queueAction(QStringLiteral("/api/native/v1/rooms/%1/queue/%2/play").arg(m_roomId, itemId), false);
+}
+
+bool RoomController::setPlayback(const QString &state, double position)
+{
+    if (!canControl() || m_steering || syncKind().isEmpty()
+        || (state != QLatin1StringView("playing") && state != QLatin1StringView("paused"))
+        || !std::isfinite(position) || position < 0 || position > 172800)
+        return false;
+    m_steering = true;
+    m_actionErrorKey.clear();
+    emit sendChanged();
+    const quint64 generation = m_generation;
+    m_api->post(QStringLiteral("/api/native/v1/rooms/%1/playback").arg(m_roomId),
+                QJsonObject{{QStringLiteral("source"), m_room.url},
+                            {QStringLiteral("state"), state},
+                            {QStringLiteral("position"), std::round(position * 1000) / 1000}},
+                this, [this, generation](const QJsonObject &, const ApiError *error) {
+        if (generation != m_generation)
+            return;
+        m_steering = false;
+        m_actionErrorKey = error ? error->messageKey : QString();
+        emit sendChanged();
+        load(false);
+    });
+    return true;
 }
 
 bool RoomController::addToQueue(const QString &url)

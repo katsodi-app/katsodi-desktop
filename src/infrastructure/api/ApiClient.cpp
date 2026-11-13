@@ -55,6 +55,15 @@ void ApiClient::post(const QString &path, const QJsonObject &body, QObject *cont
     });
 }
 
+void ApiClient::del(const QString &path, QObject *context, Done done)
+{
+    if (!m_tokens)
+        return send("DELETE", path, {}, {}, context, std::move(done));
+    m_tokens->withToken(context, [this, path, context, done = std::move(done)](const QString &token) {
+        send("DELETE", path, {}, token, context, done);
+    });
+}
+
 void ApiClient::getPublic(const QString &path, QObject *context, Done done)
 {
     send("GET", path, {}, {}, context, std::move(done));
@@ -84,6 +93,8 @@ void ApiClient::send(const QByteArray &verb, const QString &path, const QByteArr
     if (verb == "POST") {
         request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
         reply = m_network->post(request, body);
+    } else if (verb == "DELETE") {
+        reply = m_network->deleteResource(request);
     } else {
         reply = m_network->get(request);
     }

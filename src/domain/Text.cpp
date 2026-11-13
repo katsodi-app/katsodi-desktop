@@ -2,6 +2,7 @@
 
 #include <QRegularExpression>
 #include <QUrl>
+#include <QUrlQuery>
 
 namespace katsodi {
 
@@ -72,6 +73,50 @@ bool isAcceptableSource(const QString &input)
     static const QRegularExpression reserved(QStringLiteral(R"(\.(localhost|local|internal|test|invalid|example)$)"));
     return host.contains(u'.') && !ipv4.match(host).hasMatch() && !host.contains(u':') && !host.startsWith(u'[')
            && !reserved.match(host).hasMatch() && !host.endsWith(u'.');
+}
+
+QString youtubeVideoId(const QString &input)
+{
+    if (!isAcceptableSource(input))
+        return {};
+    const QUrl url(input.trimmed(), QUrl::StrictMode);
+    const QString host = url.host().toLower();
+    static const QStringList hosts{QStringLiteral("youtube.com"), QStringLiteral("www.youtube.com"),
+                                   QStringLiteral("m.youtube.com"), QStringLiteral("youtu.be")};
+    if (!hosts.contains(host))
+        return {};
+    QString id;
+    const QString path = url.path();
+    if (host == QLatin1StringView("youtu.be")) {
+        id = path.mid(1);
+    } else if (path == QLatin1StringView("/watch")) {
+        id = QUrlQuery(url).queryItemValue(QStringLiteral("v"));
+    } else {
+        static const QRegularExpression embed(QStringLiteral(R"(^/(?:embed|shorts|live)/([^/]+)$)"));
+        const auto match = embed.match(path);
+        if (match.hasMatch())
+            id = match.captured(1);
+    }
+    static const QRegularExpression valid(QStringLiteral(R"(^[A-Za-z0-9_-]{11}$)"));
+    return valid.match(id).hasMatch() ? id : QString();
+}
+
+QString syncSource(const QString &input)
+{
+    if (!youtubeVideoId(input).isEmpty())
+        return QStringLiteral("youtube");
+    if (!isAcceptableSource(input))
+        return {};
+    const QUrl url(input.trimmed(), QUrl::StrictMode);
+    const QString host = url.host().toLower();
+    if (host == QLatin1StringView("vimeo.com") || host == QLatin1StringView("www.vimeo.com"))
+        return QStringLiteral("vimeo");
+    static const QRegularExpression track(QStringLiteral(R"(^/[^/]+/[^/]+/?$)"));
+    if ((host == QLatin1StringView("soundcloud.com") || host == QLatin1StringView("www.soundcloud.com")
+         || host == QLatin1StringView("m.soundcloud.com"))
+        && track.match(url.path()).hasMatch())
+        return QStringLiteral("soundcloud");
+    return {};
 }
 
 QString initials(const QString &name)

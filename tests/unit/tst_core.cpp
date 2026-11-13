@@ -14,6 +14,7 @@
 #include "app/PosterImageProvider.h"
 #include "presentation/RoomController.h"
 #include "infrastructure/api/ApiClient.h"
+#include "presentation/PlayerController.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -88,7 +89,7 @@ const QString user1 = QStringLiteral("10000000-0000-4000-8000-000000000001");
 
 QJsonObject roomJson()
 {
-    return QJsonObject{{"id", room1}, {"owner_id", user1}, {"name", "Вечер"}, {"description", ""},
+    return QJsonObject{{"id", room1}, {"owner_id", user1}, {"name", "Đ’ĐµŃ‡ĐµŃ€"}, {"description", ""},
                        {"format", "video"}, {"visibility", "public"}, {"url", "https://youtu.be/x"},
                        {"art", "orbit"}, {"closed_at", QJsonValue::Null}, {"created_at", "2026-11-12T10:00:00.123+00:00"},
                        {"fandom_id", QJsonValue::Null}};
@@ -136,8 +137,8 @@ private slots:
 
     void searchMatchesTheWebsite()
     {
-        QCOMPARE(searchText(QStringLiteral("  Ёлка   Café ")), QStringLiteral("елка cafe"));
-        QVERIFY(matchesSearch(QStringLiteral("ведьмак ЁЖ"), {QStringLiteral("Ведьмак и ёж")}));
+        QCOMPARE(searchText(QStringLiteral("  ĐĐ»ĐşĐ°   CafĂ© ")), QStringLiteral("ĐµĐ»ĐşĐ° cafe"));
+        QVERIFY(matchesSearch(QStringLiteral("Đ˛ĐµĐ´ŃŚĐĽĐ°Đş ĐĐ–"), {QStringLiteral("Đ’ĐµĐ´ŃŚĐĽĐ°Đş Đ¸ Ń‘Đ¶")}));
         QVERIFY(matchesSearch(QStringLiteral("star wars"), {QStringLiteral("Star"), QStringLiteral("Wars")}));
         QVERIFY(!matchesSearch(QStringLiteral("star trek"), {QStringLiteral("Star Wars")}));
         QVERIFY(matchesSearch(QString(), {QStringLiteral("anything")}));
@@ -149,7 +150,7 @@ private slots:
         QVERIFY(isUuid(room1.toUpper()));
         QVERIFY(!isUuid(QStringLiteral("../admin")));
         QVERIFY(!isUuid(room1 + QStringLiteral("0")));
-        QVERIFY(isValidMessage(QStringLiteral(" привет ")));
+        QVERIFY(isValidMessage(QStringLiteral(" ĐżŃ€Đ¸Đ˛ĐµŃ‚ ")));
         QVERIFY(!isValidMessage(QStringLiteral("   ")));
         QVERIFY(isValidMessage(QString(2000, u'a')));
         QVERIFY(!isValidMessage(QString(2001, u'a')));
@@ -162,7 +163,7 @@ private slots:
     {
         const auto room = parseRoom(roomJson());
         QVERIFY(room.has_value());
-        QCOMPARE(room->name, QStringLiteral("Вечер"));
+        QCOMPARE(room->name, QStringLiteral("Đ’ĐµŃ‡ĐµŃ€"));
         QVERIFY(room->fandomId.isEmpty()); // optional fandom stays "none"
         QVERIFY(!room->closed);
         for (const auto &[key, value] : std::vector<std::pair<QString, QJsonValue>>{
@@ -211,8 +212,8 @@ private slots:
         model.setViewer(user1);
         const QString other = QStringLiteral("10000000-0000-4000-8000-000000000002");
         model.replaceAll({message(1), message(2), message(3, other)});
-        model.setNames({{user1, QStringLiteral("Аня")}});
-        QCOMPARE(model.data(model.index(0), ChatModel::AuthorRole).toString(), QStringLiteral("Аня"));
+        model.setNames({{user1, QStringLiteral("ĐĐ˝ŃŹ")}});
+        QCOMPARE(model.data(model.index(0), ChatModel::AuthorRole).toString(), QStringLiteral("ĐĐ˝ŃŹ"));
         QCOMPARE(model.data(model.index(1), ChatModel::GroupedRole).toBool(), true);
         QCOMPARE(model.data(model.index(2), ChatModel::GroupedRole).toBool(), false);
         QCOMPARE(model.data(model.index(0), ChatModel::OwnRole).toBool(), true);
@@ -226,7 +227,7 @@ private slots:
         QJsonObject music = roomJson();
         music.insert("id", "20000000-0000-4000-8000-000000000002");
         music.insert("format", "music");
-        music.insert("name", "Плейлист вечера");
+        music.insert("name", "ĐźĐ»ĐµĐąĐ»Đ¸ŃŃ‚ Đ˛ĐµŃ‡ĐµŃ€Đ°");
         QJsonObject closed = roomJson();
         closed.insert("id", "20000000-0000-4000-8000-000000000003");
         closed.insert("closed_at", "2026-11-12T11:00:00Z");
@@ -237,9 +238,9 @@ private slots:
         model.setFormat(QStringLiteral("music"));
         QCOMPARE(model.rowCount(), 1);
         model.setFormat(QString());
-        model.setQuery(QStringLiteral("плейлист"));
+        model.setQuery(QStringLiteral("ĐżĐ»ĐµĐąĐ»Đ¸ŃŃ‚"));
         QCOMPARE(model.rowCount(), 1);
-        QCOMPARE(model.data(model.index(0), RoomListModel::NameRole).toString(), QStringLiteral("Плейлист вечера"));
+        QCOMPARE(model.data(model.index(0), RoomListModel::NameRole).toString(), QStringLiteral("ĐźĐ»ĐµĐąĐ»Đ¸ŃŃ‚ Đ˛ĐµŃ‡ĐµŃ€Đ°"));
     }
 
     void bundledResourcesLoad()
@@ -254,7 +255,7 @@ private slots:
 
         Strings strings(&preferences);
         preferences.setLocale(QStringLiteral("ru"));
-        QCOMPARE(strings.text(QStringLiteral("navHome")), QStringLiteral("Главная"));
+        QCOMPARE(strings.text(QStringLiteral("navHome")), QStringLiteral("Đ“Đ»Đ°Đ˛Đ˝Đ°ŃŹ"));
         preferences.setLocale(QStringLiteral("en"));
         QCOMPARE(strings.text(QStringLiteral("navHome")), QStringLiteral("Home"));
         QCOMPARE(strings.format(QStringLiteral("accountSignedIn"), QStringLiteral("name"), QStringLiteral("Ann")),
@@ -385,6 +386,49 @@ private slots:
             QVERIFY2(!isAcceptableSource(QString::fromLatin1(bad)), bad);
     }
 
+    void playerSourcesMatchTheWebsite()
+    {
+        // youtubeVideoId / syncSource in src/lib/providers.ts and playback.ts.
+        const QString id = QStringLiteral("aqz-KE-bpKQ");
+        for (const char *link : {"https://www.youtube.com/watch?v=aqz-KE-bpKQ", "https://youtu.be/aqz-KE-bpKQ",
+                                 "https://m.youtube.com/shorts/aqz-KE-bpKQ", "https://youtube.com/live/aqz-KE-bpKQ",
+                                 "https://www.youtube.com/embed/aqz-KE-bpKQ"})
+            QCOMPARE(youtubeVideoId(QString::fromLatin1(link)), id);
+        for (const char *bad : {"https://www.youtube.com/watch?v=short", "https://evil.com/watch?v=aqz-KE-bpKQ",
+                                "http://youtu.be/aqz-KE-bpKQ", "https://youtu.be/aqz-KE-bpKQ/x",
+                                "https://www.youtube.com/playlist?list=aqz-KE-bpKQ"})
+            QVERIFY2(youtubeVideoId(QString::fromLatin1(bad)).isEmpty(), bad);
+        QCOMPARE(syncSource(QStringLiteral("https://youtu.be/aqz-KE-bpKQ")), QStringLiteral("youtube"));
+        QCOMPARE(syncSource(QStringLiteral("https://vimeo.com/22439234")), QStringLiteral("vimeo"));
+        QCOMPARE(syncSource(QStringLiteral("https://soundcloud.com/forss/flickermood")), QStringLiteral("soundcloud"));
+        // A SoundCloud set is a playlist, not one track: not synchronized.
+        QCOMPARE(syncSource(QStringLiteral("https://soundcloud.com/soundcloud-scenes/sets/dreams")), QString());
+        QCOMPARE(syncSource(QStringLiteral("https://open.spotify.com/track/x")), QString());
+
+        // The shared timeline advances only while playing.
+        QCOMPARE(PlayerController::expectedPosition(QStringLiteral("playing"), 10, 2500), 12.5);
+        QCOMPARE(PlayerController::expectedPosition(QStringLiteral("paused"), 10, 2500), 10.0);
+        QCOMPARE(PlayerController::expectedPosition(QStringLiteral("playing"), 10, -500), 10.0);
+        QCOMPARE(PlayerController::expectedPosition(QStringLiteral("playing"), -1, 100), 0.0);
+    }
+
+    void playerStaysOffWithoutHelperOrSource()
+    {
+        ApiClient api(QUrl(QStringLiteral("http://127.0.0.1:9")));
+        Preferences preferences(QStringLiteral("Katsodi Test"));
+        Session session(&api, CredentialStore(QStringLiteral("Katsodi Test/session")));
+        RoomController room(&api, &session, &preferences);
+        PlayerController player(&room, &preferences, QUrl(QStringLiteral("http://127.0.0.1:9")), QString());
+        QVERIFY(!player.available());
+        QCOMPARE(player.state(), QStringLiteral("off"));
+        // Asking for a surface without a helper never starts a process.
+        player.setSurface(nullptr, 0, 0, 640, 360, true);
+        QCOMPARE(player.state(), QStringLiteral("off"));
+        player.togglePlay(); // ignored: nothing is ready
+        player.seek(10);
+        QCOMPARE(player.position(), 0.0);
+    }
+
     void libraryKeepsDraftsSavedAndFandoms()
     {
         QTemporaryDir dir;
@@ -394,16 +438,16 @@ private slots:
             QVERIFY(library.available());
             QCOMPARE(library.createDraft({{"name", "ab"}, {"format", "video"}, {"visibility", "public"}}),
                      QStringLiteral("createNameInvalid"));
-            QCOMPARE(library.createDraft({{"name", "Вечер кино"}, {"format", "video"}, {"visibility", "public"},
+            QCOMPARE(library.createDraft({{"name", "Đ’ĐµŃ‡ĐµŃ€ ĐşĐ¸Đ˝Đľ"}, {"format", "video"}, {"visibility", "public"},
                                           {"url", "http://insecure.example.org/"}}),
                      QStringLiteral("createUrlInvalid"));
-            QCOMPARE(library.createDraft({{"name", "Вечер кино"}, {"format", "podcast"}, {"visibility", "public"}}),
+            QCOMPARE(library.createDraft({{"name", "Đ’ĐµŃ‡ĐµŃ€ ĐşĐ¸Đ˝Đľ"}, {"format", "podcast"}, {"visibility", "public"}}),
                      QStringLiteral("errorInvalid"));
-            QCOMPARE(library.createDraft({{"name", "  Вечер кино  "}, {"description", "чай"}, {"format", "video"},
+            QCOMPARE(library.createDraft({{"name", "  Đ’ĐµŃ‡ĐµŃ€ ĐşĐ¸Đ˝Đľ  "}, {"description", "Ń‡Đ°Đą"}, {"format", "video"},
                                           {"visibility", "private"}, {"url", "https://youtu.be/x"}, {"art", "moon"}}),
                      QString());
             QCOMPARE(library.count(), 1);
-            QCOMPARE(library.data(library.index(0), LocalLibrary::NameRole).toString(), QStringLiteral("Вечер кино"));
+            QCOMPARE(library.data(library.index(0), LocalLibrary::NameRole).toString(), QStringLiteral("Đ’ĐµŃ‡ĐµŃ€ ĐşĐ¸Đ˝Đľ"));
             QVERIFY(library.toggleSaved(room1));
             QVERIFY(library.isSaved(room1));
             QVERIFY(!library.toggleSaved(QStringLiteral("not-a-uuid")));
@@ -443,7 +487,7 @@ private slots:
         FandomModel fandoms(QUrl(QStringLiteral("file:///art/")));
         SearchModel search(&rooms, &fandoms);
         QCOMPARE(search.count(), 0); // empty query: nothing, no work
-        search.setQuery(QStringLiteral("вечер"));
+        search.setQuery(QStringLiteral("Đ˛ĐµŃ‡ĐµŃ€"));
         QCOMPARE(search.count(), 1);
         QCOMPARE(search.data(search.index(0), SearchModel::TypeRole).toString(), QStringLiteral("room"));
         search.setQuery(QStringLiteral("star"));

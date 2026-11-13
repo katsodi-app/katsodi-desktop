@@ -39,6 +39,10 @@ $env:KATSODI_QT_DIR = $qt
 $livekit = Join-Path $toolchain "livekit/1.13.1/livekit-sdk-windows-x64-1.13.1"
 if (Test-Path (Join-Path $livekit "lib/cmake/LiveKit")) { $env:KATSODI_LIVEKIT_DIR = $livekit; $env:PATH = "$livekit/bin;$env:PATH" }
 else { Write-Warning "LiveKit SDK not found: building without voice." }
+# Optional WebView2 SDK for the provider player (python native-desktop/tools/install-webview2.py <toolchain>).
+$webview2 = Join-Path $toolchain "webview2/1.0.4314.35"
+if (Test-Path (Join-Path $webview2 "build/native/include/WebView2.h")) { $env:KATSODI_WEBVIEW2_DIR = $webview2 }
+else { Write-Warning "WebView2 SDK not found: building without the provider player." }
 
 Push-Location $source
 try {
