@@ -82,23 +82,12 @@ Popup {
             }
         }
 
-        CheckBox {
+        KCheckBox {
             id: agree
             Layout.leftMargin: 18
             Layout.rightMargin: 24
             Layout.fillWidth: true
             text: I18n.s.browserDisclaimerAgree
-            font.family: Theme.fontFamily
-            font.pixelSize: 14
-            font.weight: Font.DemiBold
-            contentItem: Text {
-                leftPadding: agree.indicator.width + agree.spacing
-                text: agree.text
-                font: agree.font
-                color: K.text
-                wrapMode: Text.WordWrap
-                verticalAlignment: Text.AlignVCenter
-            }
         }
 
         RowLayout {

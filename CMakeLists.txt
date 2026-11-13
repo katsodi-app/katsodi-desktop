@@ -150,6 +150,8 @@ qt_add_qml_module(katsodi
     qml/controls/Logo.qml
     qml/controls/Scroller.qml
     qml/controls/HRow.qml
+    qml/controls/KSwitch.qml
+    qml/controls/KCheckBox.qml
     qml/shell/Backdrop.qml
     qml/shell/Rail.qml
     qml/shell/NowBar.qml

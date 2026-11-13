@@ -19,7 +19,9 @@ Popup {
     height: Math.min(560, parent.height - 48)
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    readonly property var others: Room.members.filter(m => m.id.toLowerCase() !== Room.demoUserId)
+    // Everyone but yourself (the presenter).
+    readonly property var others: Room.members.filter(m => m.id.toLowerCase() !== Room.viewerId
+                                                       && m.id.toLowerCase() !== Room.demoUserId)
 
     Overlay.modal: Rectangle { color: Qt.alpha(Theme.c.background, 0.8) }
     enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: K.base } }
@@ -56,20 +58,11 @@ Popup {
                 wrapMode: Text.WordWrap
             }
         }
-        Switch {
-            Layout.leftMargin: 16
+        KSwitch {
+            Layout.leftMargin: 18
             text: I18n.s.browserAccessAll
             checked: Demo.controlAll
             onToggled: Demo.setControlAll(checked)
-            font.family: Theme.fontFamily
-            font.weight: Font.Bold
-            contentItem: Text {
-                leftPadding: parent.indicator.width + parent.spacing
-                text: parent.text
-                font: parent.font
-                color: K.text
-                verticalAlignment: Text.AlignVCenter
-            }
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: K.stroke }
         ListView {
@@ -111,7 +104,7 @@ Popup {
                         font.weight: Font.DemiBold
                         elide: Text.ElideRight
                     }
-                    Switch {
+                    KSwitch {
                         checked: row.allowed
                         enabled: !Demo.controlAll
                         onToggled: Demo.setControl(row.modelData.id, checked)

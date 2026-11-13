@@ -52,19 +52,19 @@ ColumnLayout {
             font.family: Theme.fontFamily
             font.pixelSize: 14
         }
-        RowLayout {
+        KTextField {
+            id: demoField
             Layout.fillWidth: true
             Layout.maximumWidth: 620
             Layout.alignment: Qt.AlignHCenter
+            iconName: "globe"
+            placeholderText: I18n.s.demoPlaceholder
+            maximumLength: 2048
+            onAccepted: if (Demo.request(text)) demoField.clear()
+        }
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
             spacing: 8
-            KTextField {
-                id: demoField
-                Layout.fillWidth: true
-                iconName: "globe"
-                placeholderText: I18n.s.demoPlaceholder
-                maximumLength: 2048
-                onAccepted: if (Demo.request(text)) demoField.clear()
-            }
             KButton {
                 kind: "primary"
                 iconName: "monitor"
@@ -457,6 +457,14 @@ ColumnLayout {
     // under these popups, since nothing can be drawn over them.
     Binding { target: Player; property: "obscured"; value: true; when: picker.visible || disclaimer.visible || access.visible }
     Binding { target: Browser; property: "obscured"; value: true; when: picker.visible || disclaimer.visible || access.visible }
+
+    // Development capture mode only (RoomScreen.captureDemo).
+    function captureDialog(name) {
+        picker.close(); disclaimer.close(); access.close()
+        if (name === "disclaimer") { disclaimer.url = "https://example.com/"; disclaimer.open() }
+        else if (name === "access") access.open()
+        else if (name === "picker") picker.open()
+    }
 
     SharePicker { id: picker }
     BrowserDisclaimer {

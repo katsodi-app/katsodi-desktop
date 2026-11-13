@@ -63,6 +63,7 @@ class RoomController : public QObject {
     Q_PROPERTY(QString demoUserId READ demoUserId NOTIFY stateChanged)
     /** A host opened the demo channel to every member (drawing / control). */
     Q_PROPERTY(bool demoChannelOpen READ demoChannelOpen NOTIFY stateChanged)
+    Q_PROPERTY(QString viewerId READ viewerId NOTIFY roomChanged)
 public:
     RoomController(ApiClient *api, Session *session, Preferences *preferences, QObject *parent = nullptr);
 

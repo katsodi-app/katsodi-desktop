@@ -36,6 +36,10 @@ ApplicationWindow {
         if (name === "search") {
             Search.query = id
             search.open()
+        } else if (name === "stage" || name === "dialog") {
+            // Development capture only: the room stage pane, or a demo dialog.
+            if (screen.item && screen.item.captureDemo)
+                screen.item.captureDemo(name, id)
         } else if (name === "create") {
             create.open()
         } else {

@@ -23,6 +23,7 @@ Item {
         plus: "M12 5 V19 M5 12 H19",
         close: "M6 6 L18 18 M18 6 L6 18",
         minimize: "M5 12 H19",
+        check: "M5 12.5 L10 17.5 L19 7",
         maximize: "M5.5 5.5 H18.5 V18.5 H5.5 Z",
         restore: "M8.5 8.5 H18.5 V18.5 H8.5 Z M5.5 15.5 V5.5 H15.5",
         monitor: "M3.5 4.5 H20.5 V16 H3.5 Z M9 20 H15 M12 16 V20",

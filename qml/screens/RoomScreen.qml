@@ -32,6 +32,14 @@ Item {
     Component.onCompleted: if (roomId && Room.roomId !== roomId.toLowerCase()) Room.open(roomId)
     onRoomIdChanged: if (roomId && Room.roomId !== roomId.toLowerCase()) Room.open(roomId)
 
+    // Development capture mode (Main.captureStep): show a stage pane or a demo dialog.
+    function captureDemo(name, id) {
+        if (name === "stage")
+            stageMode = id
+        else
+            demoPanel.captureDialog(id)
+    }
+
     function clock(seconds) {
         const s = Math.max(0, Math.floor(seconds))
         const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60
@@ -374,6 +382,7 @@ Item {
                     }
 
                     DemoPanel {
+                        id: demoPanel
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: screen.stageMode === "demo" && Room.joined && !Room.closed && Demo.available
