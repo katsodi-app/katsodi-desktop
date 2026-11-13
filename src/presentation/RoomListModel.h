@@ -2,6 +2,7 @@
 #include "domain/Records.h"
 
 #include <QAbstractListModel>
+#include <QVariantMap>
 #include <vector>
 
 namespace katsodi {
@@ -37,12 +38,19 @@ public:
     void setQuery(const QString &query);
 
     Q_INVOKABLE void reload();
+    /** Creates a shared room on the server (signed-in accounts). */
+    Q_INVOKABLE void createShared(const QVariantMap &input);
+    /** A loaded room by id as a map for QML, or empty. */
+    Q_INVOKABLE QVariantMap room(const QString &id) const;
+    const std::vector<RoomRecord> &all() const { return m_all; }
     /** Applies a response body (public for tests). */
     void apply(const QJsonObject &body);
 
 signals:
     void stateChanged();
     void filterChanged();
+    void created(const QString &roomId, bool importFailed);
+    void createFailed(const QString &messageKey);
 
 private:
     void refilter();

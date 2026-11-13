@@ -19,6 +19,14 @@ bool isUuid(const QString &value);
 /** The website's chat limit: 1–2000 characters after trimming. */
 bool isValidMessage(const QString &text);
 
+/**
+ * The website's structural source check (inspectSource in
+ * src/lib/providers.ts, without provider recognition): https only, no
+ * credentials, default port, a dotted host name that is neither an IP
+ * literal nor a reserved name. The server checks again for shared rooms.
+ */
+bool isAcceptableSource(const QString &url);
+
 /** Up to two initials for an artwork fallback, as on the website. */
 QString initials(const QString &name);
 

@@ -2,45 +2,36 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Katsodi.App
-import "../controls"
+import Katsodi.Ui
 
 // The room's voice lounge (website voice-lounge.tsx): explicit join with
 // the microphone off, mute, deafen, devices, speaking state and leave.
-Rectangle {
+Glass {
     id: panel
     readonly property bool active: Voice.state !== "idle"
-    implicitHeight: content.implicitHeight + 28
-    radius: 14
-    color: Theme.c.surfaceElevated
+    implicitHeight: content.implicitHeight + 32
+    radius: K.rPanel
 
     ColumnLayout {
         id: content
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: 14
-        spacing: 10
+        anchors.margins: 16
+        spacing: 12
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 10
+            spacing: 12
             Rectangle {
-                implicitWidth: 34; implicitHeight: 34; radius: 11
-                color: Theme.c.selected
-                // Sound-wave mark, as on the website's voice symbol.
-                Row {
+                implicitWidth: 40; implicitHeight: 40; radius: 20
+                color: Voice.state === "connected" ? Theme.c.primary : Theme.c.selected
+                Behavior on color { ColorAnimation { duration: K.base } }
+                Icon {
                     anchors.centerIn: parent
-                    spacing: 2
-                    Repeater {
-                        model: [8, 14, 18, 12, 8]
-                        delegate: Rectangle {
-                            required property int modelData
-                            width: 2; radius: 1
-                            height: modelData
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: Theme.c.primary
-                        }
-                    }
+                    name: "wave"
+                    size: 20
+                    color: Voice.state === "connected" ? Theme.c.primaryForeground : Theme.c.accent
                 }
             }
             ColumnLayout {
@@ -50,30 +41,31 @@ Rectangle {
                     Layout.fillWidth: true
                     elide: Text.ElideRight
                     text: I18n.s.voiceTitle
-                    color: Theme.c.foreground
+                    color: K.text
+                    font.family: Theme.fontFamily
                     font.pixelSize: 15
-                    font.weight: Font.DemiBold
+                    font.weight: Font.Bold
                 }
                 RowLayout {
                     spacing: 6
                     Rectangle {
-                        width: 6; height: 6; radius: 3
+                        width: 7; height: 7; radius: 3.5
                         color: Voice.state === "connected" ? Theme.c.success
-                               : Voice.state === "idle" ? Theme.c.mutedForeground : Theme.c.warning
+                               : Voice.state === "idle" ? K.muted : Theme.c.warning
                     }
                     Text {
                         text: Voice.state === "connected" ? I18n.s.voiceConnected
                               : Voice.state === "joining" ? I18n.s.voiceJoining
                               : Voice.state === "reconnecting" ? I18n.s.voiceReconnecting
                               : I18n.s.voiceReady
-                        color: Theme.c.mutedForeground
-                        font.pixelSize: 11
+                        color: K.muted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
                     }
                 }
             }
         }
 
-        // Errors and the listen-first notice.
         Text {
             Layout.fillWidth: true
             visible: text.length > 0
@@ -82,7 +74,8 @@ Rectangle {
                   : !panel.active && !Room.joined ? I18n.s.voiceJoinRoom
                   : Voice.state === "connected" && !Voice.microphone && !Voice.deafened ? I18n.s.voiceListenFirst
                   : ""
-            color: Voice.errorKey ? Theme.c.danger : Theme.c.mutedForeground
+            color: Voice.errorKey ? Theme.c.danger : K.muted
+            font.family: Theme.fontFamily
             font.pixelSize: 12
             wrapMode: Text.WordWrap
             Accessible.role: Voice.errorKey ? Accessible.AlertMessage : Accessible.StaticText
@@ -90,56 +83,67 @@ Rectangle {
 
         KButton {
             visible: !panel.active
+            kind: "accent"
             small: true
+            iconName: "headphones"
             text: I18n.s.voiceJoin
             enabled: Voice.available && Room.joined && !Room.closed
             onClicked: Voice.join()
         }
 
-        // Participants: speaking ring, microphone state.
+        // Participants with a ring that breathes while they speak.
         Flow {
             Layout.fillWidth: true
             visible: Voice.peers.length > 0
-            spacing: 10
+            spacing: 12
             Repeater {
                 model: Voice.peers
-                delegate: ColumnLayout {
+                delegate: Column {
                     required property var modelData
-                    spacing: 4
-                    width: 58
+                    spacing: 5
+                    width: 60
                     Item {
-                        Layout.alignment: Qt.AlignHCenter
-                        implicitWidth: 44; implicitHeight: 44
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: 48; height: 48
                         Rectangle {
-                            anchors.fill: parent
-                            radius: 22
-                            color: Theme.c.selected
+                            anchors.centerIn: parent
+                            width: 48; height: 48; radius: 24
+                            color: "transparent"
                             border.width: modelData.speaking ? 3 : 0
                             border.color: Theme.c.accent
+                            scale: modelData.speaking && !K.still ? 1.08 : 1
+                            Behavior on scale { NumberAnimation { duration: K.fast } }
+                        }
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 40; height: 40; radius: 20
+                            color: Theme.c.selected
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData.initial
                                 color: Theme.c.accent
+                                font.family: Theme.displayFamily
+                                font.pixelSize: 17
                                 font.weight: Font.Bold
-                                font.pixelSize: 15
                             }
                         }
                         Rectangle {
                             visible: !modelData.microphone
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
-                            width: 16; height: 16; radius: 8
-                            color: Theme.c.surface
+                            width: 18; height: 18; radius: 9
+                            color: K.glassStrong
                             border.width: 1
-                            border.color: Theme.c.border
-                            Text { anchors.centerIn: parent; text: "×"; color: Theme.c.danger; font.pixelSize: 11; font.weight: Font.Bold }
+                            border.color: K.stroke
+                            Icon { anchors.centerIn: parent; size: 11; name: "micOff"; color: Theme.c.danger }
                         }
                     }
                     Text {
-                        Layout.fillWidth: true
+                        width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: modelData.self ? modelData.name + " (" + I18n.s.voiceYou + ")" : modelData.name
-                        color: Theme.c.foreground
+                        text: modelData.self ? I18n.s.voiceYou : modelData.name
+                        color: K.text
+                        font.family: Theme.fontFamily
                         font.pixelSize: 11
                         elide: Text.ElideRight
                     }
@@ -150,34 +154,33 @@ Rectangle {
             }
         }
 
-        // Call controls.
-        Flow {
+        RowLayout {
             Layout.fillWidth: true
             visible: Voice.state === "connected" || Voice.state === "reconnecting"
             spacing: 8
-            KButton {
-                small: true
-                kind: Voice.microphone ? "secondary" : "primary"
-                text: Voice.microphone ? I18n.s.voiceMute : I18n.s.voiceUnmute
+            IconButton {
+                iconName: Voice.microphone ? "mic" : "micOff"
+                active: Voice.microphone
+                tip: Voice.microphone ? I18n.s.voiceMute : I18n.s.voiceUnmute
                 enabled: Voice.state === "connected" && !Voice.deafened
                 onClicked: Voice.toggleMicrophone()
             }
-            KButton {
-                small: true
-                kind: "secondary"
-                text: Voice.deafened ? I18n.s.voiceUndeafen : I18n.s.voiceDeafen
+            IconButton {
+                iconName: Voice.deafened ? "headphonesOff" : "headphones"
+                tip: Voice.deafened ? I18n.s.voiceUndeafen : I18n.s.voiceDeafen
                 enabled: Voice.state === "connected"
                 onClicked: Voice.toggleDeafen()
             }
-            KButton {
-                small: true
-                kind: "ghost"
-                text: I18n.s.voiceDevices
+            IconButton {
+                iconName: "sliders"
+                tip: I18n.s.voiceDevices
                 onClicked: { Voice.refreshDevices(); devices.open() }
             }
+            Item { Layout.fillWidth: true }
             KButton {
                 small: true
                 kind: "ghost"
+                iconName: "leave"
                 text: I18n.s.voiceLeave
                 onClicked: Voice.leave()
             }
@@ -185,28 +188,24 @@ Rectangle {
         Text {
             visible: panel.active
             text: I18n.s.voiceNoRecording
-            color: Theme.c.mutedForeground
+            color: K.muted
+            font.family: Theme.fontFamily
             font.pixelSize: 10
         }
     }
 
-    // Device choice; the system default is used until one is picked.
     Popup {
         id: devices
-        y: panel.height + 6
+        y: panel.height + 8
         width: panel.width
-        padding: 16
+        padding: 18
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        background: Rectangle {
-            radius: 12
-            color: Theme.c.surface
-            border.width: 1
-            border.color: Theme.c.borderStrong
-        }
+        enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: K.base } }
+        background: Glass { solid: true; radius: K.rCard }
         contentItem: ColumnLayout {
             spacing: 8
-            Text { text: I18n.s.voiceInput; color: Theme.c.foreground; font.pixelSize: 12; font.weight: Font.DemiBold }
+            Text { text: I18n.s.voiceInput; color: K.text; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.Bold }
             ComboBox {
                 Layout.fillWidth: true
                 model: Voice.inputs
@@ -215,7 +214,7 @@ Rectangle {
                 onActivated: Voice.setInput(currentValue)
                 Accessible.name: I18n.s.voiceInput
             }
-            Text { text: I18n.s.voiceOutput; color: Theme.c.foreground; font.pixelSize: 12; font.weight: Font.DemiBold }
+            Text { text: I18n.s.voiceOutput; color: K.text; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.Bold }
             ComboBox {
                 Layout.fillWidth: true
                 model: Voice.outputs
@@ -227,7 +226,8 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: I18n.s.voiceVolumeNote
-                color: Theme.c.mutedForeground
+                color: K.muted
+                font.family: Theme.fontFamily
                 font.pixelSize: 11
                 wrapMode: Text.WordWrap
             }

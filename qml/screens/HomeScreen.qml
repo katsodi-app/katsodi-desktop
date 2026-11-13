@@ -2,178 +2,134 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Katsodi.App
-import "../controls"
+import Katsodi.Ui
 
-// Home: greeting, a row of fandoms from the bundled catalogue and the
-// rooms open right now on the server.
-ScrollView {
-    id: screen
+// Home: the overview's hero over the night sky, then Liner shelves:
+// rooms open now, fandoms, drafts and saved rooms from this device.
+Scroller {
+    id: page
     signal navigate(string name, string id)
-    contentWidth: availableWidth
-    clip: true
+    signal createRequested()
+    readonly property int side: width < 760 ? 20 : 48
+    contentHeight: column.implicitHeight + 120
 
     ColumnLayout {
-        width: screen.availableWidth
-        spacing: 28
+        id: column
+        width: page.width
+        spacing: 34
 
-        Item { implicitHeight: 2 }
-
-        // Heading row as on the website: large question left, intro right.
-        RowLayout {
+        PageHero {
             Layout.fillWidth: true
-            Layout.leftMargin: screen.width < 860 ? 16 : 44
-            Layout.rightMargin: Layout.leftMargin
-            spacing: 32
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 12
-                RowLayout {
-                    spacing: 10
-                    Rectangle { width: 22; height: 2; radius: 1; color: Theme.c.accent }
-                    Text {
-                        text: I18n.s.homeEyebrow.toUpperCase()
-                        color: Theme.c.mutedForeground
-                        font.pixelSize: 9
-                        font.weight: Font.Bold
-                        font.letterSpacing: 1.44
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: I18n.s.homeTitle
-                    color: Theme.c.foreground
-                    font.pixelSize: Math.max(32, Math.min(60, screen.width * 0.05))
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: -font.pixelSize * 0.07
-                    wrapMode: Text.WordWrap
-                    Accessible.role: Accessible.Heading
-                }
-            }
-            Text {
-                visible: screen.width >= 860
-                Layout.preferredWidth: 260
-                Layout.alignment: Qt.AlignBottom
-                text: I18n.s.homeIntro
-                color: Theme.c.mutedForeground
-                font.pixelSize: 14
-                lineHeight: 1.45
-                wrapMode: Text.WordWrap
-            }
+            Layout.leftMargin: page.side
+            Layout.rightMargin: page.side
+            Layout.topMargin: Math.max(40, page.height * 0.12)
+            Layout.bottomMargin: 18
+            badge: I18n.s.homeBadge
+            title: I18n.s.homeDisplay
+            accent: I18n.s.homeAccent
+            lead: I18n.s.homeIntro
+            size: Math.max(48, Math.min(104, page.width * 0.085))
+            KButton { text: I18n.s.homeOpenRooms; iconName: "rooms"; onClicked: page.navigate("rooms", "") }
+            KButton { kind: "ghost"; text: I18n.s.homeCreate; iconName: "plus"; onClicked: page.createRequested() }
         }
 
-        // Fandoms
-        SectionHeader {
-            title: I18n.s.homeFandoms
-            action: I18n.s.homeFandomsAll
-            onActivated: screen.navigate("fandoms", "")
-        }
-        ListView {
+        SectionTitle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 250
-            Layout.leftMargin: screen.width < 860 ? 16 : 44
-            orientation: ListView.Horizontal
-            spacing: 14
-            clip: true
-            model: Fandoms
-            cacheBuffer: 400
-            boundsBehavior: Flickable.StopAtBounds
-            delegate: ItemDelegate {
-                id: fandomCard
-                required property string name
-                required property url art
-                required property string initials
-                width: 150
-                height: 250
-                padding: 0
-                hoverEnabled: true
-                Accessible.name: name
-                onClicked: screen.navigate("fandoms", "")
-                background: Item {}
-                contentItem: ColumnLayout {
-                    spacing: 10
-                    Poster {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 210
-                        radius: 14
-                        source: fandomCard.art
-                        initials: fandomCard.initials
-                        border.width: fandomCard.hovered || fandomCard.visualFocus ? 2 : 0
-                        border.color: fandomCard.visualFocus ? Theme.c.focusRing : Theme.c.accent
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: fandomCard.name
-                        color: Theme.c.foreground
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
-                    }
-                }
-            }
-        }
-
-        // Rooms open now
-        SectionHeader {
+            Layout.leftMargin: page.side
+            Layout.rightMargin: page.side
+            iconName: "flame"
             title: I18n.s.homeRooms
             action: I18n.s.homeRoomsAll
-            onActivated: screen.navigate("rooms", "")
+            onActivated: page.navigate("rooms", "")
         }
         Text {
-            Layout.leftMargin: screen.width < 860 ? 16 : 44
+            Layout.leftMargin: page.side
             visible: !Rooms.loading && Rooms.total === 0
-            text: Rooms.errorKey ? I18n.s[Rooms.errorKey] || I18n.s.errorServer : I18n.s.roomsEmpty
-            color: Theme.c.mutedForeground
+            text: Rooms.errorKey ? (I18n.s[Rooms.errorKey] || I18n.s.errorServer) : I18n.s.roomsEmpty
+            color: K.muted
+            font.family: Theme.fontFamily
             font.pixelSize: 14
         }
-        Flow {
+        HRow {
             Layout.fillWidth: true
-            Layout.leftMargin: screen.width < 860 ? 16 : 44
-            Layout.rightMargin: Layout.leftMargin
-            spacing: 16
-            Repeater {
-                model: Rooms
-                delegate: RoomCard {
-                    required property var model
-                    required property int index
-                    roomId: model.roomId
-                    name: model.name
-                    description: model.description
-                    format: model.format
-                    visibility: model.visibility
-                    art: model.art
-                    fandomId: model.fandomId
-                    visible: index < 4
-                    width: visible ? implicitWidth : 0
-                    onClicked: screen.navigate("room", roomId)
-                }
+            Layout.preferredHeight: 240
+            Layout.leftMargin: page.side
+            visible: Rooms.total > 0
+            page: page
+            model: Rooms
+            delegate: RoomCard {
+                required property var model
+                required property int index
+                order: index
+                roomId: model.roomId
+                name: model.name
+                description: model.description
+                format: model.format
+                visibility: model.visibility
+                art: model.art
+                fandomId: model.fandomId
+                onClicked: page.navigate("room", roomId)
             }
         }
 
-        Item { implicitHeight: 40 }
-    }
-
-    component SectionHeader: RowLayout {
-        id: header
-        property string title
-        property string action
-        signal activated()
-        Layout.fillWidth: true
-        Layout.leftMargin: screen.width < 860 ? 16 : 44
-        Layout.rightMargin: Layout.leftMargin
-        Text {
+        SectionTitle {
             Layout.fillWidth: true
-            text: header.title
-            color: Theme.c.foreground
-            font.pixelSize: 22
-            font.weight: Font.DemiBold
-            font.letterSpacing: -0.9
-            Accessible.role: Accessible.Heading
+            Layout.leftMargin: page.side
+            Layout.rightMargin: page.side
+            iconName: "fandoms"
+            title: I18n.s.homeFandoms
+            action: I18n.s.homeFandomsAll
+            onActivated: page.navigate("fandoms", "")
         }
-        KButton {
-            kind: "ghost"
-            small: true
-            text: header.action + "  →"
-            onClicked: header.activated()
+        HRow {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 290
+            Layout.leftMargin: page.side
+            page: page
+            model: Fandoms
+            delegate: FandomCard {
+                required property var model
+                required property int index
+                order: index
+                fandomId: model.fandomId
+                name: model.name
+                category: model.category
+                art: model.art || ""
+                initials: model.initials
+            }
+        }
+
+        SectionTitle {
+            Layout.fillWidth: true
+            Layout.leftMargin: page.side
+            Layout.rightMargin: page.side
+            visible: Library.count > 0
+            iconName: "library"
+            title: I18n.s.homeDrafts
+            action: I18n.s.navLibrary
+            onActivated: page.navigate("library", "")
+        }
+        HRow {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 240
+            Layout.leftMargin: page.side
+            visible: Library.count > 0
+            page: page
+            model: Library
+            delegate: RoomCard {
+                required property var model
+                required property int index
+                order: index
+                draft: true
+                roomId: model.draftId
+                name: model.name
+                description: model.description
+                format: model.format
+                visibility: model.visibility
+                art: model.art
+                fandomId: model.fandomId || ""
+                onRemoveRequested: Library.deleteDraft(roomId)
+            }
         }
     }
 }

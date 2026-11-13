@@ -12,6 +12,9 @@
 #include "presentation/Strings.h"
 #include "presentation/ThemeController.h"
 #include "presentation/VoiceController.h"
+#include "app/PosterImageProvider.h"
+#include "presentation/SearchModel.h"
+#include "infrastructure/storage/LocalLibrary.h"
 #ifdef KATSODI_WITH_LIVEKIT
 #include "media/livekit/LiveKitVoiceEngine.h"
 #endif
@@ -136,6 +139,9 @@ int main(int argc, char *argv[])
     NullVoiceEngine voiceEngine;
 #endif
     VoiceController voice(&api, &room, &voiceEngine);
+    SearchModel search(&rooms, &fandoms);
+    LocalLibrary library(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+                         + QStringLiteral("/library.sqlite"));
     Links links;
 
     QGuiApplication::setFont(QFont(theme.fontFamily(), 10));
@@ -148,12 +154,19 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Rooms", &rooms);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Room", &room);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Voice", &voice);
+    qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Search", &search);
+    qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Library", &library);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Links", &links);
     qmlRegisterUncreatableType<ChatModel>("Katsodi.App", 1, 0, "ChatModel", QStringLiteral("owned by Room"));
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("poster"),
+                            new PosterImageProvider(QCoreApplication::applicationDirPath() + QStringLiteral("/artwork")));
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"), QString::fromLatin1(build::version));
     engine.rootContext()->setContextProperty(QStringLiteral("appChannel"), QString::fromLatin1(build::channel));
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("editorialBase"),
+        QUrl::fromLocalFile(QCoreApplication::applicationDirPath() + QStringLiteral("/artwork/editorial/")));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("Katsodi.Ui", "Main");
@@ -196,6 +209,19 @@ int main(int argc, char *argv[])
             const QStringList routes = qEnvironmentVariable("KATSODI_CAPTURE_ROUTES",
                                                             QStringLiteral("home,rooms,fandoms,settings,signin"))
                                            .split(u',', Qt::SkipEmptyParts);
+            // Optional: palette, language and window size for this run only.
+            const QString originalTheme = preferences.theme(), originalLocale = preferences.locale();
+            if (qEnvironmentVariableIsSet("KATSODI_CAPTURE_THEME"))
+                preferences.setTheme(qEnvironmentVariable("KATSODI_CAPTURE_THEME"));
+            if (qEnvironmentVariableIsSet("KATSODI_CAPTURE_LOCALE"))
+                preferences.setLocale(qEnvironmentVariable("KATSODI_CAPTURE_LOCALE"));
+            const QStringList size = qEnvironmentVariable("KATSODI_CAPTURE_SIZE").split(u'x');
+            if (size.size() == 2)
+                window->resize(size[0].toInt(), size[1].toInt());
+            QObject::connect(&app, &QCoreApplication::aboutToQuit, [&preferences, originalTheme, originalLocale] {
+                preferences.setTheme(originalTheme);
+                preferences.setLocale(originalLocale);
+            });
             auto *timer = new QTimer(&app);
             auto step = std::make_shared<int>(-1);
             QObject::connect(timer, &QTimer::timeout, &app, [=] {
@@ -212,7 +238,7 @@ int main(int argc, char *argv[])
                 const QString spec = routes[*step];
                 const QString route = spec.section(u':', 0, 0);
                 const QString id = spec.section(u':', 1, 1);
-                QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, route), Q_ARG(QVariant, id));
+                QMetaObject::invokeMethod(window, "captureStep", Q_ARG(QVariant, route), Q_ARG(QVariant, id));
             });
             timer->start(3500);
         }

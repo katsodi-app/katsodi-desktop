@@ -19,6 +19,8 @@ ThemeController::ThemeController(Preferences *preferences, QObject *parent)
     if (file.open(QIODevice::ReadOnly))
         load(file.readAll());
     m_fontFamily = loadFonts();
+    m_displayFamily = loadFont(QStringLiteral(":/katsodi/fonts/Oswald.ttf"), QStringLiteral("Bahnschrift Condensed"));
+    m_handFamily = loadFont(QStringLiteral(":/katsodi/fonts/Caveat.ttf"), QStringLiteral("Segoe Script"));
     connect(preferences, &Preferences::themeChanged, this, &ThemeController::changed);
     if (auto *hints = QGuiApplication::styleHints())
         connect(hints, &QStyleHints::colorSchemeChanged, this, [this] {
@@ -62,6 +64,13 @@ bool ThemeController::load(const QByteArray &json)
     m_palettes = loaded;
     emit changed();
     return true;
+}
+
+QString ThemeController::loadFont(const QString &resource, const QString &fallback)
+{
+    const int id = QFontDatabase::addApplicationFont(resource);
+    const QStringList families = id >= 0 ? QFontDatabase::applicationFontFamilies(id) : QStringList();
+    return families.isEmpty() ? fallback : families.first();
 }
 
 QString ThemeController::loadFonts()

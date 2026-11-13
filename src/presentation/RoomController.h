@@ -37,6 +37,12 @@ class RoomController : public QObject {
     Q_PROPERTY(bool joining READ joining NOTIFY sendChanged)
     Q_PROPERTY(QString actionErrorKey READ actionErrorKey NOTIFY sendChanged)
     Q_PROPERTY(ChatModel *chat READ chat CONSTANT)
+    Q_PROPERTY(QVariantList queue READ queue NOTIFY stateChanged)
+    /** "playing", "paused" or "" (not started / no synchronized timeline). */
+    Q_PROPERTY(QString playback READ playback NOTIFY stateChanged)
+    /** Seconds into the source at the moment of the last snapshot, estimated. */
+    Q_PROPERTY(double playbackPosition READ playbackPosition NOTIFY stateChanged)
+    Q_PROPERTY(bool queueing READ queueing NOTIFY sendChanged)
 public:
     RoomController(ApiClient *api, Session *session, Preferences *preferences, QObject *parent = nullptr);
 
@@ -57,6 +63,12 @@ public:
     bool joining() const { return m_joining; }
     QString actionErrorKey() const { return m_actionErrorKey; }
     ChatModel *chat() { return &m_chat; }
+    QVariantList queue() const { return m_queue; }
+    QString playback() const { return m_playback; }
+    double playbackPosition() const { return m_playbackPosition; }
+    bool queueing() const { return m_queueing; }
+    /** Adds a link to the queue; false when the link is not acceptable. */
+    Q_INVOKABLE bool addToQueue(const QString &url);
 
     Q_INVOKABLE void open(const QString &roomId);
     Q_INVOKABLE void close();
@@ -74,6 +86,7 @@ signals:
     void sendChanged();
     /** A message was accepted by the server; the composer may clear. */
     void sent();
+    void queued();
 
 private:
     void load(bool full);
@@ -88,7 +101,10 @@ private:
     QString m_roomId, m_errorKey, m_role, m_actionErrorKey;
     QString m_viewer; // the account the current state was loaded for
     RoomRecord m_room;
-    QVariantList m_members;
+    QVariantList m_members, m_queue;
+    QString m_playback;
+    double m_playbackPosition = 0;
+    bool m_queueing = false;
     bool m_loading = false, m_joined = false, m_sending = false, m_joining = false, m_inFlight = false;
     quint64 m_generation = 0;
 };

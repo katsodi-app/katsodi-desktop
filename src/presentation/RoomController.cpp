@@ -6,7 +6,9 @@
 #include "presentation/Preferences.h"
 
 #include <QJsonArray>
+#include <QUrl>
 #include <QVariantMap>
+#include <cmath>
 
 namespace katsodi {
 
@@ -49,6 +51,10 @@ void RoomController::close()
     m_roomId.clear();
     m_room = RoomRecord{};
     m_members.clear();
+    m_queue.clear();
+    m_playback.clear();
+    m_playbackPosition = 0;
+    m_queueing = false;
     m_joined = false;
     m_loading = false;
     m_sending = false;
@@ -140,6 +146,38 @@ void RoomController::applySnapshot(const QJsonObject &body)
             break;
     }
 
+    // Queue (links waiting to play) and the shared timeline, when present.
+    m_queue.clear();
+    for (const QJsonValue &item : body.value(QLatin1StringView("queue")).toArray()) {
+        const QJsonObject entry = item.toObject();
+        const QString id = entry.value(QLatin1StringView("id")).toString();
+        const QString url = entry.value(QLatin1StringView("url")).toString();
+        if (!isUuid(id) || url.isEmpty() || url.size() > 2048)
+            continue;
+        const QString addedBy = entry.value(QLatin1StringView("added_by")).toString();
+        m_queue.append(QVariantMap{{QStringLiteral("id"), id},
+                                   {QStringLiteral("url"), url},
+                                   {QStringLiteral("host"), QUrl(url).host()},
+                                   {QStringLiteral("addedBy"), names.value(addedBy.toLower())}});
+        if (m_queue.size() >= 300)
+            break;
+    }
+    const QJsonObject playback = body.value(QLatin1StringView("playback")).toObject();
+    const QString state = playback.value(QLatin1StringView("state")).toString();
+    m_playback = state == QLatin1StringView("playing") || state == QLatin1StringView("paused") ? state : QString();
+    m_playbackPosition = 0;
+    if (!m_playback.isEmpty()) {
+        const double position = playback.value(QLatin1StringView("position")).toDouble();
+        const auto updated = parseTimestamp(playback.value(QLatin1StringView("updated_at")).toString());
+        const auto server = parseTimestamp(body.value(QLatin1StringView("serverTime")).toString());
+        double elapsed = 0;
+        // Extrapolate with the server's own clock, never the local one.
+        if (m_playback == QLatin1StringView("playing") && updated && server)
+            elapsed = std::max<qint64>(0, updated->msecsTo(*server)) / 1000.0;
+        if (std::isfinite(position) && position >= 0 && position <= 172800)
+            m_playbackPosition = position + elapsed;
+    }
+
     std::vector<MessageRecord> messages;
     for (const QJsonValue &item : body.value(QLatin1StringView("messages")).toArray())
         if (auto message = parseMessage(item.toObject()))
@@ -196,6 +234,30 @@ void RoomController::join()
         emit sendChanged();
         load(true);
     });
+}
+
+bool RoomController::addToQueue(const QString &url)
+{
+    if (m_roomId.isEmpty() || m_queueing || !m_joined || !isAcceptableSource(url))
+        return false;
+    m_queueing = true;
+    m_actionErrorKey.clear();
+    emit sendChanged();
+    const quint64 generation = m_generation;
+    m_api->post(QStringLiteral("/api/native/v1/rooms/%1/queue").arg(m_roomId),
+                QJsonObject{{QStringLiteral("url"), url.trimmed()}}, this,
+                [this, generation](const QJsonObject &, const ApiError *error) {
+        if (generation != m_generation)
+            return;
+        m_queueing = false;
+        m_actionErrorKey = error ? error->messageKey : QString();
+        emit sendChanged();
+        if (!error) {
+            emit queued();
+            load(false);
+        }
+    });
+    return true;
 }
 
 bool RoomController::send(const QString &text)

@@ -1,6 +1,7 @@
 #include "domain/Text.h"
 
 #include <QRegularExpression>
+#include <QUrl>
 
 namespace katsodi {
 
@@ -52,6 +53,25 @@ bool isValidMessage(const QString &text)
 {
     const QString trimmed = text.trimmed();
     return !trimmed.isEmpty() && trimmed.size() <= 2000;
+}
+
+bool isAcceptableSource(const QString &input)
+{
+    const QString trimmed = input.trimmed();
+    if (trimmed.isEmpty() || input.size() > 2048)
+        return false;
+    for (const QChar ch : trimmed)
+        if (ch.unicode() <= 0x20 || ch.unicode() == 0x7f)
+            return false;
+    const QUrl url(trimmed, QUrl::StrictMode);
+    if (!url.isValid() || url.scheme() != QLatin1StringView("https") || !url.userName().isEmpty()
+        || !url.password().isEmpty() || (url.port() != -1 && url.port() != 443))
+        return false;
+    const QString host = url.host().toLower();
+    static const QRegularExpression ipv4(QStringLiteral(R"(^[\d.]+$)"));
+    static const QRegularExpression reserved(QStringLiteral(R"(\.(localhost|local|internal|test|invalid|example)$)"));
+    return host.contains(u'.') && !ipv4.match(host).hasMatch() && !host.contains(u':') && !host.startsWith(u'[')
+           && !reserved.match(host).hasMatch() && !host.endsWith(u'.');
 }
 
 QString initials(const QString &name)

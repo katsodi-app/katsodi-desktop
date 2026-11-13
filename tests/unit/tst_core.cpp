@@ -9,6 +9,9 @@
 #include "presentation/Strings.h"
 #include "presentation/ThemeController.h"
 #include "presentation/VoiceController.h"
+#include "presentation/SearchModel.h"
+#include "infrastructure/storage/LocalLibrary.h"
+#include "app/PosterImageProvider.h"
 #include "presentation/RoomController.h"
 #include "infrastructure/api/ApiClient.h"
 
@@ -18,6 +21,7 @@
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QDir>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -265,6 +269,7 @@ private slots:
         fandoms.setQuery(QStringLiteral("star"));
         QVERIFY(fandoms.rowCount() >= 2);
         QCOMPARE(fandoms.nameOf(QStringLiteral("cinema-0")), QStringLiteral("Star Wars"));
+        QCOMPARE(fandoms.artOf(QStringLiteral("cinema-0")), QStringLiteral("fandoms/cinema-0.webp"));
     }
 
     void preferencesValidateInput()
@@ -368,6 +373,110 @@ private slots:
         room.close();
         QCOMPARE(voice.state(), QStringLiteral("idle"));
         QVERIFY(engine.disconnects > before);
+    }
+
+    void sourceCheckMatchesTheWebsite()
+    {
+        QVERIFY(isAcceptableSource(QStringLiteral("https://www.youtube.com/watch?v=abc")));
+        QVERIFY(isAcceptableSource(QStringLiteral("https://soundcloud.com/a/b:443")));
+        for (const char *bad : {"http://youtube.com/watch", "https://user:pw@youtube.com/", "https://127.0.0.1/x",
+                                "https://localhost/x", "https://site.local/x", "https://youtube.com:8443/x",
+                                "javascript:alert(1)", "https://exa mple.com/", "https://[::1]/", "https://intranet/"})
+            QVERIFY2(!isAcceptableSource(QString::fromLatin1(bad)), bad);
+    }
+
+    void libraryKeepsDraftsSavedAndFandoms()
+    {
+        QTemporaryDir dir;
+        const QString file = dir.filePath(QStringLiteral("library.sqlite"));
+        {
+            LocalLibrary library(file);
+            QVERIFY(library.available());
+            QCOMPARE(library.createDraft({{"name", "ab"}, {"format", "video"}, {"visibility", "public"}}),
+                     QStringLiteral("createNameInvalid"));
+            QCOMPARE(library.createDraft({{"name", "Вечер кино"}, {"format", "video"}, {"visibility", "public"},
+                                          {"url", "http://insecure.example.org/"}}),
+                     QStringLiteral("createUrlInvalid"));
+            QCOMPARE(library.createDraft({{"name", "Вечер кино"}, {"format", "podcast"}, {"visibility", "public"}}),
+                     QStringLiteral("errorInvalid"));
+            QCOMPARE(library.createDraft({{"name", "  Вечер кино  "}, {"description", "чай"}, {"format", "video"},
+                                          {"visibility", "private"}, {"url", "https://youtu.be/x"}, {"art", "moon"}}),
+                     QString());
+            QCOMPARE(library.count(), 1);
+            QCOMPARE(library.data(library.index(0), LocalLibrary::NameRole).toString(), QStringLiteral("Вечер кино"));
+            QVERIFY(library.toggleSaved(room1));
+            QVERIFY(library.isSaved(room1));
+            QVERIFY(!library.toggleSaved(QStringLiteral("not-a-uuid")));
+            QVERIFY(library.toggleFollowed(QStringLiteral("anime-3")));
+            QVERIFY(!library.toggleFollowed(QStringLiteral("../x")));
+        }
+        {
+            // Everything survives a restart.
+            LocalLibrary library(file);
+            QCOMPARE(library.count(), 1);
+            QVERIFY(library.isSaved(room1));
+            QVERIFY(library.isFollowed(QStringLiteral("anime-3")));
+            QVERIFY(!library.toggleSaved(room1)); // toggles off
+            const QString id = library.data(library.index(0), LocalLibrary::IdRole).toString();
+            library.deleteDraft(id);
+            QCOMPARE(library.count(), 0);
+        }
+        {
+            // A damaged file is kept aside and a fresh database is created.
+            QFile broken(file);
+            QVERIFY(broken.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            broken.write(QByteArray(4096, 'x'));
+            broken.close();
+            LocalLibrary library(file);
+            QVERIFY(library.recovered());
+            QVERIFY(library.available());
+            QCOMPARE(library.count(), 0);
+            QVERIFY(!QDir(dir.path()).entryList({QStringLiteral("library.sqlite.corrupt-*")}).isEmpty());
+        }
+    }
+
+    void searchFindsRoomsAndFandoms()
+    {
+        ApiClient api(QUrl(QStringLiteral("http://127.0.0.1:1")));
+        RoomListModel rooms(&api);
+        rooms.apply(QJsonObject{{"rooms", QJsonArray{roomJson()}}});
+        FandomModel fandoms(QUrl(QStringLiteral("file:///art/")));
+        SearchModel search(&rooms, &fandoms);
+        QCOMPARE(search.count(), 0); // empty query: nothing, no work
+        search.setQuery(QStringLiteral("вечер"));
+        QCOMPARE(search.count(), 1);
+        QCOMPARE(search.data(search.index(0), SearchModel::TypeRole).toString(), QStringLiteral("room"));
+        search.setQuery(QStringLiteral("star"));
+        QVERIFY(search.count() >= 2);
+        QVERIFY(search.count() <= SearchModel::perGroup * 2);
+        search.setFilter(QStringLiteral("rooms"));
+        QCOMPARE(search.count(), 0);
+        search.setFilter(QStringLiteral("bogus"));
+        QCOMPARE(search.filter(), QStringLiteral("rooms"));
+    }
+
+    void posterIdsAreConfined()
+    {
+        QSize size;
+        int radius = 0;
+        QString relative;
+        QVERIFY(PosterImageProvider::parse(QStringLiteral("240x336x24/fandoms/cinema-0.webp"), &size, &radius, &relative));
+        QCOMPARE(size, QSize(240, 336));
+        QCOMPARE(relative, QStringLiteral("fandoms/cinema-0.webp"));
+        for (const char *bad : {"240x336x24/../secret.webp", "240x336x24/fandoms/../../a.webp", "0x10x1/fandoms/a.webp",
+                                "99999x1x1/fandoms/a.webp", "240x336x24/C:/Windows/a.webp", "240x336x24/fandoms/a.png",
+                                "240x336x24/other/a.webp"})
+            QVERIFY2(!PosterImageProvider::parse(QString::fromLatin1(bad), &size, &radius, &relative), bad);
+        // Rendering never decodes at full size and keeps the corners clear.
+        QTemporaryDir dir;
+        QImage source(800, 1200, QImage::Format_RGB32);
+        source.fill(Qt::red);
+        const QString file = dir.filePath(QStringLiteral("a.png"));
+        QVERIFY(source.save(file));
+        const QImage out = PosterImageProvider::render(file, QSize(100, 100), 20);
+        QCOMPARE(out.size(), QSize(100, 100));
+        QCOMPARE(qAlpha(out.pixel(0, 0)), 0);
+        QCOMPARE(qAlpha(out.pixel(50, 50)), 255);
     }
 
     void apiRefusesForeignPaths()

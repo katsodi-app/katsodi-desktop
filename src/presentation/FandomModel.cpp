@@ -98,11 +98,11 @@ QString FandomModel::nameOf(const QString &id) const
     return {};
 }
 
-QUrl FandomModel::artOf(const QString &id) const
+QString FandomModel::artOf(const QString &id) const
 {
     for (const Fandom &fandom : m_all)
         if (fandom.id == id)
-            return fandom.art.isEmpty() ? QUrl() : m_artworkBase.resolved(QUrl(fandom.art));
+            return fandom.art.isEmpty() ? QString() : QStringLiteral("fandoms/") + fandom.art;
     return {};
 }
 
@@ -120,7 +120,7 @@ QVariant FandomModel::data(const QModelIndex &index, int role) const
     case IdRole: return fandom.id;
     case NameRole: return fandom.name;
     case CategoryRole: return fandom.category;
-    case ArtRole: return fandom.art.isEmpty() ? QUrl() : m_artworkBase.resolved(QUrl(fandom.art));
+    case ArtRole: return fandom.art.isEmpty() ? QString() : QStringLiteral("fandoms/") + fandom.art;
     case ArtWidthRole: return fandom.width;
     case ArtHeightRole: return fandom.height;
     case InitialsRole: return fandom.initials;

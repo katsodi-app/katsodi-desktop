@@ -15,7 +15,7 @@ set(KATSODI_CHANNEL "development" CACHE STRING "development or production")
 set_property(CACHE KATSODI_CHANNEL PROPERTY STRINGS development production)
 set(KATSODI_PRODUCTION_ORIGIN "https://katsodi.watch")
 
-find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Test)
+find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Sql Test)
 
 # Voice: the official LiveKit C++ SDK, prebuilt (tools/install-livekit.py).
 # Without it the client still builds and shows voice as unavailable.
@@ -64,6 +64,8 @@ qt_add_library(katsodi_core STATIC
   src/presentation/ChatModel.h src/presentation/ChatModel.cpp
   src/presentation/RoomController.h src/presentation/RoomController.cpp
   src/presentation/VoiceController.h src/presentation/VoiceController.cpp
+  src/presentation/SearchModel.h src/presentation/SearchModel.cpp
+  src/infrastructure/storage/LocalLibrary.h src/infrastructure/storage/LocalLibrary.cpp
   src/media/VoiceEngine.h
 )
 if(LiveKit_FOUND)
@@ -73,7 +75,7 @@ if(LiveKit_FOUND)
   target_compile_definitions(katsodi_core PUBLIC KATSODI_WITH_LIVEKIT=1)
 endif()
 target_include_directories(katsodi_core PUBLIC src ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(katsodi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml)
+target_link_libraries(katsodi_core PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Qml Qt6::Sql)
 if(WIN32)
   target_link_libraries(katsodi_core PUBLIC advapi32)
 endif()
@@ -88,14 +90,16 @@ qt_add_resources(katsodi_core "katsodi_data"
     resources/fonts/manrope-cyrillic.ttf
     resources/fonts/manrope-latin-ext.ttf
     resources/fonts/manrope-cyrillic-ext.ttf
+    resources/fonts/Oswald.ttf
+    resources/fonts/Caveat.ttf
     resources/icons/logo.svg
 )
 katsodi_warnings(katsodi_core)
 
 # --- Tests ----------------------------------------------------------------
 enable_testing()
-qt_add_executable(tst_core tests/unit/tst_core.cpp)
-target_link_libraries(tst_core PRIVATE katsodi_core Qt6::Test)
+qt_add_executable(tst_core tests/unit/tst_core.cpp src/app/PosterImageProvider.cpp)
+target_link_libraries(tst_core PRIVATE katsodi_core Qt6::Quick Qt6::Test)
 katsodi_warnings(tst_core)
 set_target_properties(tst_core PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME core COMMAND tst_core)
@@ -109,29 +113,43 @@ endif()
 set_tests_properties(core PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # --- Application ----------------------------------------------------------
-qt_add_executable(katsodi WIN32 src/app/main.cpp src/app/katsodi.rc)
+qt_add_executable(katsodi WIN32 src/app/main.cpp src/app/katsodi.rc
+  src/app/PosterImageProvider.h src/app/PosterImageProvider.cpp)
 set_target_properties(katsodi PROPERTIES OUTPUT_NAME "Katsodi")
+set_source_files_properties(qml/theme/K.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(katsodi
   URI Katsodi.Ui
   VERSION 1.0
   QML_FILES
     qml/Main.qml
+    qml/theme/K.qml
+    qml/controls/Glass.qml
+    qml/controls/Icon.qml
+    qml/controls/IconButton.qml
     qml/controls/KButton.qml
-    qml/controls/KChip.qml
     qml/controls/KTextField.qml
-    qml/controls/PageIntro.qml
+    qml/controls/Segmented.qml
+    qml/controls/PageHero.qml
+    qml/controls/SectionTitle.qml
     qml/controls/Poster.qml
-    qml/shell/Sidebar.qml
-    qml/shell/NavItem.qml
-    qml/shell/TopBar.qml
+    qml/controls/Logo.qml
+    qml/controls/Scroller.qml
+    qml/controls/HRow.qml
+    qml/shell/Backdrop.qml
+    qml/shell/Rail.qml
+    qml/shell/NowBar.qml
+    qml/shell/SearchOverlay.qml
     qml/screens/HomeScreen.qml
     qml/screens/RoomsScreen.qml
     qml/screens/RoomCard.qml
+    qml/screens/FandomCard.qml
     qml/screens/RoomScreen.qml
+    qml/screens/VoicePanel.qml
     qml/screens/FandomsScreen.qml
+    qml/screens/LibraryScreen.qml
+    qml/screens/CreateRoomDialog.qml
     qml/screens/SettingsScreen.qml
     qml/screens/SignInScreen.qml
-    qml/screens/VoicePanel.qml
 )
 target_link_libraries(katsodi PRIVATE katsodi_core Qt6::Quick Qt6::QuickControls2)
 katsodi_warnings(katsodi)
@@ -165,6 +183,12 @@ if(LiveKit_FOUND)
   install(FILES "${KATSODI_LIVEKIT_ROOT}/LICENSE" DESTINATION licenses RENAME LiveKit-SDK-LICENSE.txt)
 endif()
 
+set(KATSODI_EDITORIAL "${CMAKE_CURRENT_SOURCE_DIR}/resources/artwork/space-1600.webp" "${CMAKE_CURRENT_SOURCE_DIR}/resources/artwork/forest-1600.webp")
+add_custom_command(TARGET katsodi POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:katsodi>/artwork/editorial
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KATSODI_EDITORIAL} $<TARGET_FILE_DIR:katsodi>/artwork/editorial
+  VERBATIM)
+install(FILES ${KATSODI_EDITORIAL} DESTINATION bin/artwork/editorial)
 add_custom_command(TARGET katsodi POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:katsodi>/artwork/fandoms
   COMMAND ${CMAKE_COMMAND} -E copy_if_different ${KATSODI_ARTWORK} $<TARGET_FILE_DIR:katsodi>/artwork/fandoms
@@ -176,6 +200,7 @@ add_custom_command(TARGET katsodi POST_BUILD
 install(TARGETS katsodi RUNTIME DESTINATION bin)
 install(FILES ${KATSODI_ARTWORK} DESTINATION bin/artwork/fandoms)
 install(FILES resources/fonts/OFL.txt DESTINATION licenses RENAME Manrope-OFL.txt)
+install(FILES resources/fonts/Oswald-OFL.txt resources/fonts/Caveat-OFL.txt resources/artwork/CREDITS.txt DESTINATION licenses)
 qt_generate_deploy_qml_app_script(
   TARGET katsodi
   OUTPUT_SCRIPT KATSODI_DEPLOY_SCRIPT

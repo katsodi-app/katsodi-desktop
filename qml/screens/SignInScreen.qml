@@ -2,10 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Katsodi.App
-import "../controls"
+import Katsodi.Ui
 
-// Native sign-in with the same account as the website. The password is
-// handed to Supabase Auth and never stored by the application.
+// Native sign-in with the website account, over the night sky. The
+// password goes to Supabase Auth and is never stored by the app.
 Item {
     id: screen
     signal done()
@@ -15,50 +15,44 @@ Item {
         function onChanged() { if (Account.signedIn) screen.done() }
     }
 
-    Rectangle {
+    Glass {
         anchors.centerIn: parent
-        width: Math.min(440, parent.width - 32)
-        implicitHeight: form.implicitHeight + 72
-        radius: 16
-        color: Theme.c.surface
-
+        width: Math.min(480, parent.width - 40)
+        implicitHeight: form.implicitHeight + 76
+        strong: true
+        radius: 28
         ColumnLayout {
             id: form
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: 36
+            anchors.margins: 38
             spacing: 14
 
-            Text {
-                text: I18n.s.signInTitle
-                color: Theme.c.foreground
-                font.pixelSize: 34
-                font.weight: Font.DemiBold
-                font.letterSpacing: -2
-                Accessible.role: Accessible.Heading
-            }
-            Text {
+            Logo { size: 48; Layout.bottomMargin: 4 }
+            PageHero {
                 Layout.fillWidth: true
-                text: I18n.s.signInIntro
-                color: Theme.c.mutedForeground
-                font.pixelSize: 14
-                wrapMode: Text.WordWrap
+                title: I18n.s.signInDisplay
+                accent: I18n.s.signInAccent
+                lead: I18n.s.signInIntro
+                size: 44
+                spacing: 10
             }
-            Text { text: I18n.s.email; color: Theme.c.foreground; font.pixelSize: 12; font.weight: Font.DemiBold; Layout.topMargin: 6 }
             KTextField {
                 id: email
                 Layout.fillWidth: true
+                Layout.topMargin: 8
+                iconName: "globe"
                 placeholderText: I18n.s.email
                 inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
                 maximumLength: 320
                 focus: true
                 onAccepted: password.forceActiveFocus()
             }
-            Text { text: I18n.s.password; color: Theme.c.foreground; font.pixelSize: 12; font.weight: Font.DemiBold }
             KTextField {
                 id: password
                 Layout.fillWidth: true
+                iconName: "lock"
                 placeholderText: I18n.s.password
                 echoMode: TextInput.Password
                 maximumLength: 128
@@ -69,6 +63,7 @@ Item {
                 visible: Account.errorKey !== "" && Account.state !== "authenticating"
                 text: I18n.s[Account.errorKey] || I18n.s.errorServer
                 color: Theme.c.danger
+                font.family: Theme.fontFamily
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
                 Accessible.role: Accessible.AlertMessage
@@ -77,6 +72,7 @@ Item {
                 id: submit
                 Layout.fillWidth: true
                 Layout.topMargin: 6
+                kind: "accent"
                 text: Account.state === "authenticating" ? I18n.s.signInWorking : I18n.s.signIn
                 enabled: Account.state !== "authenticating" && email.text.length > 0 && password.text.length > 0
                 onClicked: {
@@ -88,7 +84,8 @@ Item {
                 Layout.fillWidth: true
                 visible: !Account.persistent
                 text: I18n.s.accountSessionOnly
-                color: Theme.c.mutedForeground
+                color: K.muted
+                font.family: Theme.fontFamily
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
             }

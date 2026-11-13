@@ -82,6 +82,44 @@ void RoomListModel::setQuery(const QString &query)
     emit filterChanged();
 }
 
+void RoomListModel::createShared(const QVariantMap &input)
+{
+    QJsonObject body;
+    for (const char *key : {"name", "description", "format", "visibility", "url", "art", "fandomId"}) {
+        const QString value = input.value(QLatin1StringView(key)).toString();
+        if (!value.isEmpty() || QLatin1StringView(key) == QLatin1StringView("description")
+            || QLatin1StringView(key) == QLatin1StringView("url"))
+            body.insert(QLatin1StringView(key), value.trimmed());
+    }
+    if (!body.contains(QLatin1StringView("art")))
+        body.insert(QStringLiteral("art"), QStringLiteral("orbit"));
+    // Not idempotent: no automatic resend after an ambiguous failure.
+    m_api->post(QStringLiteral("/api/native/v1/rooms"), body, this,
+                [this](const QJsonObject &reply, const ApiError *error) {
+        if (error) {
+            emit createFailed(error->messageKey);
+            return;
+        }
+        const QString id = reply.value(QLatin1StringView("id")).toString();
+        if (!isUuid(id)) {
+            emit createFailed(QStringLiteral("errorServer"));
+            return;
+        }
+        emit created(id.toLower(), reply.value(QLatin1StringView("importFailed")).toBool());
+        reload();
+    });
+}
+
+QVariantMap RoomListModel::room(const QString &id) const
+{
+    for (const RoomRecord &room : m_all)
+        if (room.id == id)
+            return {{"roomId", room.id}, {"name", room.name}, {"description", room.description},
+                    {"format", room.format}, {"visibility", room.visibility}, {"art", room.art},
+                    {"fandomId", room.fandomId}};
+    return {};
+}
+
 int RoomListModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : static_cast<int>(m_visible.size());

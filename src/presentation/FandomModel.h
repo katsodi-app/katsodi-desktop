@@ -31,18 +31,22 @@ public:
     void setCategory(const QString &category);
     void setQuery(const QString &query);
     Q_INVOKABLE QString nameOf(const QString &id) const;
-    Q_INVOKABLE QUrl artOf(const QString &id) const;
+    /** Artwork path relative to the artwork folder ("fandoms/x.webp"), or "". */
+    Q_INVOKABLE QString artOf(const QString &id) const;
 
     bool load(const QByteArray &json);
 
 signals:
     void filterChanged();
 
-private:
+public:
     struct Fandom {
         QString id, name, category, art, initials;
         int width = 0, height = 0;
     };
+    const std::vector<Fandom> &all() const { return m_all; }
+
+private:
     void refilter();
     std::vector<Fandom> m_all;
     std::vector<int> m_visible;
