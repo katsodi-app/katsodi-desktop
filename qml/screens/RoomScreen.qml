@@ -10,6 +10,7 @@ import Katsodi.Ui
 // column with the voice lounge and the conversation.
 Item {
     id: screen
+    ConfirmDialog { id: confirmDialog }
     property string roomId
     signal back()
     signal navigate(string name, string id)
@@ -36,6 +37,10 @@ Item {
     function captureDemo(name, id) {
         if (name === "stage")
             stageMode = id
+        else if (name === "panel")
+            tabs.current = id
+        else if (id === "confirm")
+            confirmDialog.ask(I18n.s.modConfirmTitle, I18n.s.modConfirmLeave, true, null)
         else
             demoPanel.captureDialog(id)
     }
@@ -612,6 +617,57 @@ Item {
                                             font.weight: Font.DemiBold
                                         }
                                     }
+                                    // Moderation, as the website allows it; the server decides.
+                                    IconButton {
+                                        visible: !!modelData.canPromote
+                                        diameter: 30
+                                        iconName: "star"
+                                        active: modelData.role === "moderator"
+                                        enabled: !Room.moderating
+                                        tip: modelData.role === "moderator" ? I18n.s.modDemote : I18n.s.modPromote
+                                        onClicked: {
+                                            const demote = modelData.role === "moderator", id = modelData.id
+                                            confirmDialog.ask(I18n.s.modConfirmTitle,
+                                                              (demote ? I18n.s.modConfirmDemote : I18n.s.modConfirmPromote).replace("{name}", modelData.name),
+                                                              false, () => Room.moderate(id, demote ? "demote" : "promote"))
+                                        }
+                                    }
+                                    IconButton {
+                                        visible: !!modelData.canKick
+                                        diameter: 30
+                                        iconName: "close"
+                                        enabled: !Room.moderating
+                                        tip: I18n.s.modKick
+                                        onClicked: {
+                                            const id = modelData.id
+                                            confirmDialog.ask(I18n.s.modConfirmTitle, I18n.s.modConfirmKick.replace("{name}", modelData.name),
+                                                              true, () => Room.moderate(id, "kick"))
+                                        }
+                                    }
+                                }
+                                footer: ColumnLayout {
+                                    width: ListView.view.width
+                                    spacing: 18
+                                    Item { implicitHeight: 4 }
+                                    InvitePanel {
+                                        Layout.fillWidth: true
+                                        visible: Room.role === "owner" && !Room.closed
+                                    }
+                                    KButton {
+                                        visible: Room.joined && Room.viewerId !== "" && !Room.closed
+                                        kind: "ghost"
+                                        small: true
+                                        iconName: "leave"
+                                        enabled: !Room.moderating
+                                        text: Room.role === "owner" ? I18n.s.modClose : I18n.s.modLeave
+                                        onClicked: {
+                                            const close = Room.role === "owner"
+                                            confirmDialog.ask(I18n.s.modConfirmTitle,
+                                                              close ? I18n.s.modConfirmClose : I18n.s.modConfirmLeave, true,
+                                                              () => Room.moderate(Room.viewerId, close ? "close" : "leave"))
+                                        }
+                                    }
+                                    Item { implicitHeight: 12 }
                                 }
                             }
                         }

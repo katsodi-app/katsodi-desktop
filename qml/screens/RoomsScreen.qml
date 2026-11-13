@@ -52,6 +52,48 @@ Scroller {
             }
         }
 
+        // An invitation link or code from a friend (website or app).
+        Flow {
+            visible: Account.signedIn
+            Layout.fillWidth: true
+            Layout.leftMargin: page.side
+            Layout.rightMargin: page.side
+            spacing: 10
+            KTextField {
+                id: invitation
+                width: Math.min(420, page.width - 2 * page.side)
+                iconName: "link"
+                placeholderText: I18n.s.inviteJoinPlaceholder
+                Accessible.name: I18n.s.inviteJoinTitle
+                property bool bad: false
+                onTextEdited: bad = false
+                onAccepted: join.clicked()
+            }
+            KButton {
+                id: join
+                kind: "ghost"
+                text: I18n.s.inviteJoin
+                enabled: invitation.text.trim().length > 0 && !Room.moderating
+                onClicked: invitation.bad = !Room.redeemInvite(invitation.text)
+            }
+            Text {
+                visible: invitation.bad || (Room.actionErrorKey !== "" && Room.roomId === "")
+                width: Math.min(420, page.width - 2 * page.side)
+                text: invitation.bad ? I18n.s.inviteBad : (I18n.s[Room.actionErrorKey] || I18n.s.errorServer)
+                color: Theme.c.danger
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+        }
+        Connections {
+            target: Room
+            function onInvitationAccepted(roomId) {
+                invitation.clear()
+                page.navigate("room", roomId)
+            }
+        }
+
         Text {
             Layout.leftMargin: page.side
             visible: Rooms.loading && Rooms.total === 0

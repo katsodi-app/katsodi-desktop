@@ -64,6 +64,11 @@ class RoomController : public QObject {
     /** A host opened the demo channel to every member (drawing / control). */
     Q_PROPERTY(bool demoChannelOpen READ demoChannelOpen NOTIFY stateChanged)
     Q_PROPERTY(QString viewerId READ viewerId NOTIFY roomChanged)
+    /** Owner only: live invitations [{ id, expires, uses, maxUses }]. */
+    Q_PROPERTY(QVariantList invites READ invites NOTIFY stateChanged)
+    /** The invitation just issued: { id, token, link } (link may be empty). */
+    Q_PROPERTY(QVariantMap issuedInvite READ issuedInvite NOTIFY sendChanged)
+    Q_PROPERTY(bool moderating READ moderating NOTIFY sendChanged)
 public:
     RoomController(ApiClient *api, Session *session, Preferences *preferences, QObject *parent = nullptr);
 
@@ -105,6 +110,18 @@ public:
     static QString currentDemoStatus(const QJsonObject &demo, const QDateTime &serverTime);
     /** Removes a queued link (its author or a host; the server decides). */
     Q_INVOKABLE void removeFromQueue(const QString &itemId);
+    QVariantList invites() const { return m_invites; }
+    QVariantMap issuedInvite() const { return m_issuedInvite; }
+    bool moderating() const { return m_moderating; }
+    /** Owner: issues an invitation; issuedInvite holds it once. */
+    Q_INVOKABLE void issueInvite();
+    Q_INVOKABLE void revokeInvite(const QString &inviteId);
+    /** kick / promote / demote another member, or leave / close yourself. */
+    Q_INVOKABLE void moderate(const QString &userId, const QString &operation);
+    /** Accepts a pasted invitation link or token; invitationAccepted(roomId) follows. */
+    Q_INVOKABLE bool redeemInvite(const QString &text);
+    /** The token in an invitation link (/join#..., /invite/...) or a bare token; empty otherwise. */
+    static QString inviteToken(const QString &text);
     /** Host: makes a queued link the room's source now. */
     Q_INVOKABLE void playFromQueue(const QString &itemId);
     /**
@@ -132,6 +149,7 @@ signals:
     /** A message was accepted by the server; the composer may clear. */
     void sent();
     void queued();
+    void invitationAccepted(const QString &roomId);
 
 private:
     void load(bool full);
@@ -146,7 +164,10 @@ private:
     QString m_roomId, m_errorKey, m_role, m_actionErrorKey;
     QString m_viewer; // the account the current state was loaded for
     RoomRecord m_room;
-    QVariantList m_members, m_queue;
+    QVariantList m_members, m_queue, m_invites;
+    QVariantMap m_issuedInvite;
+    bool m_moderating = false;
+    void roomAction(const QString &path, const QJsonObject &body, bool remove);
     QString m_playback;
     double m_playbackPosition = 0;
     bool m_queueing = false, m_steering = false;

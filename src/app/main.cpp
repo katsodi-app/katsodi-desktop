@@ -238,15 +238,21 @@ int main(int argc, char *argv[])
                                                             QStringLiteral("home,rooms,fandoms,settings,signin"))
                                            .split(u',', Qt::SkipEmptyParts);
             // Optional: palette, language and window size for this run only.
-            const QString originalTheme = preferences.theme(), originalLocale = preferences.locale();
+            const QString originalTheme = preferences.theme(), originalLocale = preferences.locale(),
+                          originalMode = preferences.resourceMode();
             if (qEnvironmentVariableIsSet("KATSODI_CAPTURE_THEME"))
                 preferences.setTheme(qEnvironmentVariable("KATSODI_CAPTURE_THEME"));
             if (qEnvironmentVariableIsSet("KATSODI_CAPTURE_LOCALE"))
                 preferences.setLocale(qEnvironmentVariable("KATSODI_CAPTURE_LOCALE"));
+            // KATSODI_CAPTURE_STILL=1: no animations, for a window that is not
+            // presented (a locked session never advances them).
+            if (qEnvironmentVariableIsSet("KATSODI_CAPTURE_STILL"))
+                preferences.setResourceMode(QStringLiteral("low"));
             const QStringList size = qEnvironmentVariable("KATSODI_CAPTURE_SIZE").split(u'x');
             if (size.size() == 2)
                 window->resize(size[0].toInt(), size[1].toInt());
-            QObject::connect(&app, &QCoreApplication::aboutToQuit, [&preferences, originalTheme, originalLocale] {
+            QObject::connect(&app, &QCoreApplication::aboutToQuit, [&preferences, originalTheme, originalLocale, originalMode] {
+                preferences.setResourceMode(originalMode);
                 preferences.setTheme(originalTheme);
                 preferences.setLocale(originalLocale);
             });

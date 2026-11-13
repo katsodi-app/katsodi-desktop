@@ -6,6 +6,7 @@
 #include "presentation/Preferences.h"
 
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QUrl>
 #include <QVariantMap>
 #include <cmath>
@@ -52,6 +53,9 @@ void RoomController::close()
     m_room = RoomRecord{};
     m_members.clear();
     m_queue.clear();
+    m_invites.clear();
+    m_issuedInvite.clear();
+    m_moderating = false;
     m_playback.clear();
     m_demoStatus.clear();
     m_demoUrl.clear();
@@ -97,6 +101,7 @@ void RoomController::load(bool full)
                 m_room = RoomRecord{};
                 m_joined = false;
                 m_members.clear();
+                m_invites.clear();
                 m_chat.clear();
                 m_occupancy.stop();
                 m_errorKey = QStringLiteral("roomNotFound");
@@ -150,6 +155,36 @@ void RoomController::applySnapshot(const QJsonObject &body)
                                      {QStringLiteral("initials"), initials(names.value(member->userId))},
                                      {QStringLiteral("username"), m_usernames.value(member->userId)}});
         if (m_members.size() >= 200)
+            break;
+    }
+    // What the viewer may do to each member (the website's rules; the
+    // database decides in the end).
+    const bool owner = m_role == QLatin1StringView("owner"), moderator = m_role == QLatin1StringView("moderator");
+    for (QVariant &entry : m_members) {
+        QVariantMap member = entry.toMap();
+        const QString role = member.value(QStringLiteral("role")).toString();
+        const bool self = !m_viewer.isEmpty() && member.value(QStringLiteral("id")).toString() == m_viewer.toLower();
+        member.insert(QStringLiteral("self"), self);
+        member.insert(QStringLiteral("canPromote"), owner && role != QLatin1StringView("owner"));
+        member.insert(QStringLiteral("canKick"), !self && role != QLatin1StringView("owner")
+                                                    && (owner || (moderator && role == QLatin1StringView("member"))));
+        entry = member;
+    }
+
+    // Live invitations; the server sends them to the owner only.
+    m_invites.clear();
+    for (const QJsonValue &item : body.value(QLatin1StringView("invites")).toArray()) {
+        const QJsonObject invite = item.toObject();
+        const QString id = invite.value(QLatin1StringView("id")).toString();
+        if (!isUuid(id) || !invite.value(QLatin1StringView("revoked_at")).isNull())
+            continue;
+        m_invites.append(QVariantMap{
+            {QStringLiteral("id"), id},
+            {QStringLiteral("expires"),
+             QDateTime::fromString(invite.value(QLatin1StringView("expires_at")).toString(), Qt::ISODateWithMs)},
+            {QStringLiteral("uses"), invite.value(QLatin1StringView("uses")).toInt()},
+            {QStringLiteral("maxUses"), invite.value(QLatin1StringView("max_uses")).toInt()}});
+        if (m_invites.size() >= 20)
             break;
     }
 
@@ -309,6 +344,97 @@ void RoomController::queueAction(const QString &path, bool remove)
         m_api->del(path, this, done);
     else
         m_api->post(path, {}, this, done);
+}
+
+void RoomController::roomAction(const QString &path, const QJsonObject &body, bool remove)
+{
+    m_moderating = true;
+    m_actionErrorKey.clear();
+    emit sendChanged();
+    const quint64 generation = m_generation;
+    auto done = [this, generation](const QJsonObject &answer, const ApiError *error) {
+        if (generation != m_generation)
+            return;
+        m_moderating = false;
+        m_actionErrorKey = error ? error->messageKey : QString();
+        const QJsonObject invite = answer.value(QLatin1StringView("invite")).toObject();
+        if (!error && isUuid(invite.value(QLatin1StringView("id")).toString())) {
+            const QString link = invite.value(QLatin1StringView("link")).toString();
+            const QUrl url(link);
+            const bool web = url.isValid()
+                             && (url.scheme() == QLatin1StringView("https") || url.scheme() == QLatin1StringView("http"));
+            m_issuedInvite = {{QStringLiteral("id"), invite.value(QLatin1StringView("id")).toString()},
+                              {QStringLiteral("token"), inviteToken(invite.value(QLatin1StringView("token")).toString())},
+                              {QStringLiteral("link"), web ? link : QString()}};
+        }
+        emit sendChanged();
+        load(true);
+    };
+    if (remove)
+        m_api->del(path, this, done);
+    else
+        m_api->post(path, body, this, done);
+}
+
+void RoomController::issueInvite()
+{
+    if (m_moderating || m_role != QLatin1StringView("owner") || m_room.closed)
+        return;
+    m_issuedInvite.clear();
+    roomAction(QStringLiteral("/api/native/v1/rooms/%1/invites").arg(m_roomId), {}, false);
+}
+
+void RoomController::revokeInvite(const QString &inviteId)
+{
+    if (m_moderating || !isUuid(inviteId))
+        return;
+    if (m_issuedInvite.value(QStringLiteral("id")).toString() == inviteId)
+        m_issuedInvite.clear();
+    roomAction(QStringLiteral("/api/native/v1/rooms/%1/invites/%2").arg(m_roomId, inviteId), {}, true);
+}
+
+void RoomController::moderate(const QString &userId, const QString &operation)
+{
+    static const QStringList operations{QStringLiteral("kick"), QStringLiteral("promote"), QStringLiteral("demote"),
+                                        QStringLiteral("leave"), QStringLiteral("close")};
+    if (m_moderating || !isUuid(userId) || !operations.contains(operation))
+        return;
+    roomAction(QStringLiteral("/api/native/v1/rooms/%1/members/%2").arg(m_roomId, userId.toLower()),
+               {{QStringLiteral("operation"), operation}}, false);
+}
+
+QString RoomController::inviteToken(const QString &text)
+{
+    static const QRegularExpression token(QStringLiteral("^[A-Za-z0-9_-]{43}$"));
+    QString candidate = text.trimmed();
+    if (candidate.size() > 2048)
+        return {};
+    const qsizetype hash = candidate.lastIndexOf(QLatin1Char('#'));
+    if (hash >= 0)
+        candidate = candidate.mid(hash + 1);
+    else if (candidate.contains(QLatin1Char('/')))
+        candidate = candidate.section(QLatin1Char('?'), 0, 0).section(QLatin1Char('/'), -1);
+    return token.match(candidate).hasMatch() ? candidate : QString();
+}
+
+bool RoomController::redeemInvite(const QString &text)
+{
+    const QString token = inviteToken(text);
+    if (token.isEmpty() || m_moderating)
+        return false;
+    m_moderating = true;
+    m_actionErrorKey.clear();
+    emit sendChanged();
+    m_api->post(QStringLiteral("/api/native/v1/invites/redeem"), {{QStringLiteral("token"), token}}, this,
+                [this](const QJsonObject &answer, const ApiError *error) {
+        m_moderating = false;
+        m_actionErrorKey = error ? error->messageKey : QString();
+        emit sendChanged();
+        const QString roomId = answer.value(QLatin1StringView("roomId")).toString();
+        if (!error && isUuid(roomId))
+            emit invitationAccepted(roomId);
+    });
+    return true;
 }
 
 void RoomController::removeFromQueue(const QString &itemId)

@@ -572,6 +572,22 @@ private slots:
         QVERIFY(!music.roomTakesTracks());
     }
 
+    void invitationTokensComeOnlyFromInvitations()
+    {
+        const QString token = QString(40, QLatin1Char('A')) + QStringLiteral("b-_");
+        QCOMPARE(RoomController::inviteToken(token), token);
+        QCOMPARE(RoomController::inviteToken(QStringLiteral("  ") + token + QStringLiteral("\n")), token);
+        QCOMPARE(RoomController::inviteToken(QStringLiteral("https://katsodi.example/join#") + token), token);
+        QCOMPARE(RoomController::inviteToken(QStringLiteral("https://katsodi.example/invite/") + token), token);
+        QCOMPARE(RoomController::inviteToken(QStringLiteral("https://katsodi.example/invite/") + token + QStringLiteral("?x=1")),
+                 token);
+        QVERIFY(RoomController::inviteToken(token.left(42)).isEmpty());
+        QVERIFY(RoomController::inviteToken(token + QStringLiteral("A")).isEmpty());
+        QVERIFY(RoomController::inviteToken(QStringLiteral("https://katsodi.example/join#") + token.left(30)
+                                            + QStringLiteral("<script>")).isEmpty());
+        QVERIFY(RoomController::inviteToken(QString()).isEmpty());
+    }
+
     void playerStaysOffWithoutHelperOrSource()
     {
         ApiClient api(QUrl(QStringLiteral("http://127.0.0.1:9")));

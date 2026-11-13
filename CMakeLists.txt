@@ -167,6 +167,8 @@ qt_add_qml_module(katsodi
     qml/screens/RoomCard.qml
     qml/screens/FandomCard.qml
     qml/screens/RoomScreen.qml
+    qml/screens/ConfirmDialog.qml
+    qml/screens/InvitePanel.qml
     qml/screens/PlayerStage.qml
     qml/screens/DemoPanel.qml
     qml/screens/SharePicker.qml
