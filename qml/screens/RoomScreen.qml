@@ -570,6 +570,12 @@ Item {
                                     required property var modelData
                                     width: ListView.view.width
                                     spacing: 12
+                                    // A member opens their profile.
+                                    TapHandler {
+                                        enabled: (modelData.username || "") !== ""
+                                        onTapped: screen.navigate("profile", modelData.username)
+                                    }
+                                    HoverHandler { cursorShape: (modelData.username || "") !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor }
                                     Rectangle {
                                         implicitWidth: 36; implicitHeight: 36; radius: 18
                                         color: Theme.c.selected

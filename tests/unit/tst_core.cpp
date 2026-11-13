@@ -16,6 +16,7 @@
 #include "infrastructure/api/ApiClient.h"
 #include "presentation/PlayerController.h"
 #include "presentation/ScreenController.h"
+#include "presentation/PeopleController.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -484,6 +485,49 @@ private slots:
         QVERIFY(!screen.browserSession());
         // Only hosts may open a shared browser; this viewer is a member.
         QVERIFY(!screen.startBrowser(QStringLiteral("https://example.org/")));
+    }
+
+    void peopleFollowTheWebsitesRules()
+    {
+        QCOMPARE(PeopleController::normalizeUsername(QStringLiteral("  @Anna_1 ")), QStringLiteral("anna_1"));
+        for (const char *bad : {"ab", "1anna", "anna-1", "a" "nnnnnnnnnnnnnnnnnnnnnnnnnnn", "", "@"})
+            QVERIFY2(PeopleController::normalizeUsername(QString::fromLatin1(bad)).isEmpty(), bad);
+
+        ApiClient api(QUrl(QStringLiteral("http://127.0.0.1:9")));
+        PeopleController people(&api);
+        const QString friendId = QStringLiteral("80000000-0000-4000-8000-000000000008");
+        const QString askerId = QStringLiteral("90000000-0000-4000-8000-000000000009");
+        const QString requestId = QStringLiteral("a0000000-0000-4000-8000-00000000000a");
+        people.applyOverview(QJsonDocument::fromJson(QStringLiteral(R"({
+            "friends": [{"id": "%1", "username": "anna", "display_name": "Анна Б", "since": "2026-11-01T10:00:00Z"},
+                        {"id": "not-a-uuid", "username": "x", "display_name": "X"}],
+            "incoming": [{"id": "%3", "user_id": "%2", "username": "boris", "display_name": "", "created_at": "2026-11-12"}],
+            "outgoing": [], "blocked": []})").arg(friendId, askerId, requestId).toUtf8()).object());
+        QCOMPARE(people.friends().size(), 1); // a malformed row is skipped
+        const QVariantMap anna = people.friends().first().toMap();
+        QCOMPARE(anna.value("initials").toString(), QStringLiteral("АБ"));
+        QCOMPARE(anna.value("since").toString(), QStringLiteral("2026-11-01"));
+        const QVariantMap boris = people.incoming().first().toMap();
+        QCOMPARE(boris.value("requestId").toString(), requestId);
+        QCOMPARE(boris.value("name").toString(), QStringLiteral("boris")); // no display name: the username
+
+        people.applyProfile(QJsonDocument::fromJson(QStringLiteral(R"({"id": "%1", "username": "anna",
+            "display_name": "Анна Б", "bio": "кино", "self": false, "fandoms": ["anime-3"],
+            "progress": {"xp": 150, "level": 2, "into_level": 50, "next_level": 283,
+                         "achievements": [{"unlocked_at": "2026-11-02"}, {"unlocked_at": null}]}})")
+                                                     .arg(friendId).toUtf8()).object());
+        QVariantMap profile = people.profile();
+        QCOMPARE(profile.value("relation").toString(), QStringLiteral("friend"));
+        QCOMPARE(profile.value("level").toInt(), 2);
+        QCOMPARE(profile.value("unlocked").toInt(), 1);
+        QCOMPARE(profile.value("achievements").toInt(), 2);
+        people.applyProfile(QJsonDocument::fromJson(QStringLiteral(R"({"id": "%1", "username": "boris"})")
+                                                         .arg(askerId).toUtf8()).object());
+        QCOMPARE(people.profile().value("relation").toString(), QStringLiteral("incoming"));
+        people.applyProfile(QJsonDocument::fromJson(QByteArray(R"({"id": "bad", "username": "x"})")).object());
+        QCOMPARE(people.profileErrorKey(), QStringLiteral("errorServer"));
+        // Nothing is sent for an invalid name.
+        QVERIFY(!people.ask(QStringLiteral("no")));
     }
 
     void playerStaysOffWithoutHelperOrSource()

@@ -128,9 +128,12 @@ void RoomController::applySnapshot(const QJsonObject &body)
     m_joined = body.value(QLatin1StringView("joined")).toBool(false);
 
     QHash<QString, QString> names;
+    m_usernames.clear();
     for (const QJsonValue &item : body.value(QLatin1StringView("profiles")).toArray())
-        if (auto profile = parseProfile(item.toObject()))
+        if (auto profile = parseProfile(item.toObject())) {
             names.insert(profile->id, profile->displayName);
+            m_usernames.insert(profile->id, profile->username);
+        }
     m_chat.setNames(names);
 
     m_members.clear();
@@ -144,7 +147,8 @@ void RoomController::applySnapshot(const QJsonObject &body)
         m_members.append(QVariantMap{{QStringLiteral("id"), member->userId},
                                      {QStringLiteral("name"), names.value(member->userId, QStringLiteral("Katsodi"))},
                                      {QStringLiteral("role"), member->role},
-                                     {QStringLiteral("initials"), initials(names.value(member->userId))}});
+                                     {QStringLiteral("initials"), initials(names.value(member->userId))},
+                                     {QStringLiteral("username"), m_usernames.value(member->userId)}});
         if (m_members.size() >= 200)
             break;
     }

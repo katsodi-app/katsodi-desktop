@@ -153,6 +153,7 @@ private:
     qint64 m_playbackStamp = 0;
     QString m_demoStatus, m_demoUrl, m_demoUser, m_demoUserName, m_demoPausedByName;
     bool m_demoChannelOpen = false;
+    QHash<QString, QString> m_usernames; // profile id -> username
     void queueAction(const QString &path, bool remove);
     bool m_loading = false, m_joined = false, m_sending = false, m_joining = false, m_inFlight = false;
     quint64 m_generation = 0;

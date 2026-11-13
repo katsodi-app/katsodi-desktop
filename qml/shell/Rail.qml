@@ -20,9 +20,10 @@ Glass {
         { name: "home", icon: "home", label: I18n.s.navHome },
         { name: "rooms", icon: "rooms", label: I18n.s.navRooms },
         { name: "fandoms", icon: "fandoms", label: I18n.s.navFandoms },
-        { name: "library", icon: "library", label: I18n.s.navLibrary }
+        { name: "library", icon: "library", label: I18n.s.navLibrary },
+        { name: "friends", icon: "friends", label: I18n.s.navFriends }
     ]
-    readonly property string section: current === "room" ? "rooms" : current === "fandom" ? "fandoms"
+    readonly property string section: current === "room" ? "rooms" : current === "fandom" ? "fandoms" : current === "profile" ? "friends"
                                      : current === "signin" ? "settings" : current
 
     function itemFor(name) {
