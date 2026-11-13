@@ -6,6 +6,10 @@
     powershell -File native-desktop/tools/native.ps1 test      windows-dev
     powershell -File native-desktop/tools/native.ps1 run       windows-dev
     powershell -File native-desktop/tools/native.ps1 install   windows-release <staging-directory>
+    powershell -File native-desktop/tools/native.ps1 installer windows-release
+      (stages the release into build/windows-release-stage and compiles
+       native-desktop/installer/katsodi.iss into build/installer/; needs
+       python native-desktop/tools/install-innosetup.py <toolchain>)
 
   Toolchain (see docs/en/Features/Native Desktop Client.md):
     KATSODI_TOOLCHAIN  folder with venv/ (CMake, Ninja) and Qt/6.11.3/msvc2022_64,
@@ -13,7 +17,7 @@
     Visual Studio 2022 Build Tools with the C++ workload (found with vswhere).
 #>
 param(
-  [Parameter(Mandatory = $true)][ValidateSet("configure", "build", "test", "run", "install")][string]$Action,
+  [Parameter(Mandatory = $true)][ValidateSet("configure", "build", "test", "run", "install", "installer")][string]$Action,
   [ValidateSet("windows-dev", "windows-release")][string]$Preset = "windows-dev",
   [string]$Prefix = ""
 )
@@ -57,6 +61,20 @@ try {
     "install" {
       if (-not $Prefix) { throw "install needs a staging directory" }
       cmake --install "build\$Preset" --prefix $Prefix; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    }
+    "installer" {
+      if ($Preset -ne "windows-release") { throw "the installer is built from windows-release only" }
+      $iscc = Join-Path $toolchain "innosetup\6.7.4\ISCC.exe"
+      if (-not (Test-Path $iscc)) { throw "Inno Setup not found in $iscc. Run: python native-desktop/tools/install-innosetup.py `"$toolchain`"" }
+      cmake --build --preset $Preset; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      $stage = Join-Path $source "build\windows-release-stage"
+      if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+      cmake --install "build\$Preset" --prefix $stage; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      $version = (Select-String -Path (Join-Path $source "CMakeLists.txt") -Pattern "project\(KatsodiNative VERSION ([0-9.]+)").Matches[0].Groups[1].Value
+      $out = Join-Path $source "build\installer"
+      & $iscc /Q "/DStageDir=$stage" "/DAppVersion=$version" "/DOutputDir=$out" (Join-Path $source "installer\katsodi.iss")
+      if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      Get-ChildItem $out -Filter "Katsodi-Setup-*.exe" | ForEach-Object { "{0}  {1:N1} MiB" -f $_.FullName, ($_.Length / 1MB) }
     }
   }
 } finally {
