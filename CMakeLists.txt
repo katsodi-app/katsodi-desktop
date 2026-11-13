@@ -102,7 +102,6 @@ qt_add_resources(katsodi_core "katsodi_data"
     resources/fonts/manrope-latin-ext.ttf
     resources/fonts/manrope-cyrillic-ext.ttf
     resources/fonts/Oswald.ttf
-    resources/fonts/Caveat.ttf
     resources/icons/logo.svg
 )
 katsodi_warnings(katsodi_core)
@@ -232,7 +231,7 @@ add_custom_command(TARGET katsodi POST_BUILD
 install(TARGETS katsodi RUNTIME DESTINATION bin)
 install(FILES ${KATSODI_ARTWORK} DESTINATION bin/artwork/fandoms)
 install(FILES resources/fonts/OFL.txt DESTINATION licenses RENAME Manrope-OFL.txt)
-install(FILES resources/fonts/Oswald-OFL.txt resources/fonts/Caveat-OFL.txt resources/artwork/CREDITS.txt DESTINATION licenses)
+install(FILES resources/fonts/Oswald-OFL.txt resources/artwork/CREDITS.txt DESTINATION licenses)
 install(FILES resources/licenses/THIRD-PARTY-NOTICES.txt DESTINATION licenses)
 # Qt Multimedia ships FFmpeg (LGPL-2.1-or-later); Qt carries the licence text.
 install(FILES "${QT6_INSTALL_PREFIX}/share/qt6/wayland/protocols/appmenu/LGPL-2.1-or-later.txt"

@@ -11,5 +11,5 @@ avutil, swscale and swresample DLLs, dynamically linked, LGPL-2.1-or-later
 LiveKit C++ SDK 1.13.1, Apache-2.0 (LiveKit-SDK-LICENSE.txt).
 Microsoft Edge WebView2 SDK loader (static), WebView2-SDK-LICENSE.txt;
   the WebView2 runtime is part of Windows and not redistributed.
-Fonts: Manrope, Oswald, Caveat, SIL Open Font License 1.1 (*-OFL.txt).
+Fonts: Manrope, Oswald, SIL Open Font License 1.1 (*-OFL.txt).
 Artwork: see CREDITS.txt.

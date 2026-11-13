@@ -18,10 +18,8 @@ class ThemeController : public QObject {
     Q_PROPERTY(QString active READ active NOTIFY changed)
     Q_PROPERTY(bool dark READ dark NOTIFY changed)
     Q_PROPERTY(QString fontFamily READ fontFamily CONSTANT)
-    /** Condensed display face of the overview page (Oswald) and its one
-     *  handwritten accent word (Caveat). */
+    /** Condensed display face of the overview page (Oswald). */
     Q_PROPERTY(QString displayFamily READ displayFamily CONSTANT)
-    Q_PROPERTY(QString handFamily READ handFamily CONSTANT)
     Q_PROPERTY(QStringList palettes READ palettes CONSTANT)
 public:
     ThemeController(Preferences *preferences, QObject *parent = nullptr);
@@ -31,7 +29,6 @@ public:
     bool dark() const { return m_palettes.value(active()).dark; }
     QString fontFamily() const { return m_fontFamily; }
     QString displayFamily() const { return m_displayFamily; }
-    QString handFamily() const { return m_handFamily; }
     QStringList palettes() const { return {"obsidian", "ember", "aurora", "violet", "paper"}; }
     Q_INVOKABLE QVariantMap paletteColors(const QString &name) const { return m_palettes.value(name).colors; }
 
@@ -51,7 +48,7 @@ private:
     };
     Preferences *m_preferences;
     QHash<QString, Palette> m_palettes;
-    QString m_fontFamily, m_displayFamily, m_handFamily;
+    QString m_fontFamily, m_displayFamily;
 };
 
 } // namespace katsodi

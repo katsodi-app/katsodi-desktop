@@ -3,8 +3,8 @@ import QtQuick.Layouts
 import Katsodi.App
 import Katsodi.Ui
 
-// Overview headline: condensed Oswald words with one handwritten Caveat
-// word in the accent colour, a pill badge above and a lead below.
+// Overview headline: condensed Oswald words with the last word in the
+// accent colour, a pill badge above and a lead below.
 ColumnLayout {
     id: hero
     property string badge
@@ -68,12 +68,11 @@ ColumnLayout {
             visible: hero.accent.length > 0
             text: hero.accent
             color: Theme.c.accent
-            font.family: Theme.handFamily
-            font.pixelSize: hero.size * 1.08
-            font.weight: Font.Medium
-            rotation: -3
-            transformOrigin: Item.Left
-            topPadding: hero.size * 0.04
+            font.family: Theme.displayFamily
+            font.pixelSize: hero.size
+            font.weight: Font.Bold
+            font.letterSpacing: -hero.size * 0.01
+            lineHeight: 0.95
         }
     }
 

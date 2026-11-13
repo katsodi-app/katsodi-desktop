@@ -20,7 +20,6 @@ ThemeController::ThemeController(Preferences *preferences, QObject *parent)
         load(file.readAll());
     m_fontFamily = loadFonts();
     m_displayFamily = loadFont(QStringLiteral(":/katsodi/fonts/Oswald.ttf"), QStringLiteral("Bahnschrift Condensed"));
-    m_handFamily = loadFont(QStringLiteral(":/katsodi/fonts/Caveat.ttf"), QStringLiteral("Segoe Script"));
     connect(preferences, &Preferences::themeChanged, this, &ThemeController::changed);
     if (auto *hints = QGuiApplication::styleHints())
         connect(hints, &QStyleHints::colorSchemeChanged, this, [this] {

@@ -3,7 +3,7 @@ import QtQuick
 import Katsodi.App
 
 // Design tokens of the native client, combining the website's overview page
-// (night sky, Oswald headline with one Caveat word, frosted glass, pills)
+// (night sky, Oswald headline with one accent-coloured word, frosted glass, pills)
 // with Liner's calm player layout (icon rail, ambient glow, floating bar).
 // Colours always come from the active Katsodi palette (Theme.c).
 QtObject {
