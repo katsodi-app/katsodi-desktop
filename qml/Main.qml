@@ -99,6 +99,7 @@ ApplicationWindow {
             case "fandoms": return fandomsScreen
             case "fandom": return fandomScreen
             case "friends": return friendsScreen
+            case "music": return musicScreen
             case "profile": return profileScreen
             case "library": return libraryScreen
             case "settings": return settingsScreen
@@ -122,6 +123,7 @@ ApplicationWindow {
     Component { id: homeScreen; HomeScreen { onNavigate: (name, id) => window.navigate(name, id); onCreateRequested: create.open() } }
     Component { id: roomsScreen; RoomsScreen { onNavigate: (name, id) => window.navigate(name, id); onCreateRequested: create.open() } }
     Component { id: fandomsScreen; FandomsScreen { onNavigate: (name, id) => window.navigate(name, id) } }
+    Component { id: musicScreen; MusicScreen { onNavigate: (name, id) => window.navigate(name, id) } }
     Component { id: friendsScreen; FriendsScreen { onNavigate: (name, id) => window.navigate(name, id) } }
     Component {
         id: profileScreen
@@ -199,6 +201,7 @@ ApplicationWindow {
                 model: [{ name: "home", icon: "home", label: I18n.s.navHome },
                         { name: "rooms", icon: "rooms", label: I18n.s.navRooms },
                         { name: "fandoms", icon: "fandoms", label: I18n.s.navFandoms },
+                        { name: "music", icon: "music", label: I18n.s.navMusic },
                         { name: "library", icon: "library", label: I18n.s.navLibrary },
                         { name: "friends", icon: "friends", label: I18n.s.navFriends },
                         { name: "settings", icon: "settings", label: I18n.s.navSettings }]

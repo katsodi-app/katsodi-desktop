@@ -17,6 +17,7 @@
 #include "presentation/PlayerController.h"
 #include "presentation/ScreenController.h"
 #include "presentation/PeopleController.h"
+#include "presentation/MusicController.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -528,6 +529,47 @@ private slots:
         QCOMPARE(people.profileErrorKey(), QStringLiteral("errorServer"));
         // Nothing is sent for an invalid name.
         QVERIFY(!people.ask(QStringLiteral("no")));
+    }
+
+    void musicLibraryKeepsOnlySafeTracks()
+    {
+        ApiClient api(QUrl(QStringLiteral("http://127.0.0.1:9")));
+        Preferences preferences(QStringLiteral("Katsodi Test"));
+        Session session(&api, CredentialStore(QStringLiteral("Katsodi Test/session")));
+        RoomController room(&api, &session, &preferences);
+        MusicController music(&api, &room);
+        // Ordinary literals: moc mistakes "//" inside a raw string for a comment.
+        music.applyLibrary(QJsonDocument::fromJson(QByteArray(
+            "{"
+            "\"chart\": {\"checked\": \"2026-11-08T10:00:00Z\", \"tracks\": ["
+            "{\"rank\": 1, \"title\": \"Blinding Lights\", \"artists\": [\"The Weeknd\"], \"streams\": 5.6e9,"
+            "\"thumb\": \"https://image-cdn-fa.spotifycdn.com/x\", \"spotifyId\": \"0VjIjW4GlUZAMYd2vXMi3b\"},"
+            "{\"rank\": 2, \"title\": \"Bad id\", \"artists\": [], \"spotifyId\": \"nope\"}]},"
+            "\"charts\": [{\"provider\": \"youtube\", \"checked\": \"2026-11-05\", \"status\": \"stale\", \"tracks\": ["
+            "{\"rank\": 1, \"title\": \"Song\", \"artists\": [\"A\", \"B\"], \"url\": \"https://www.youtube.com/watch?v=BPZkZpGMxyz\","
+            "\"cover\": \"http://insecure.example.org/c.jpg\", \"plays\": 10},"
+            "{\"rank\": 2, \"title\": \"Local\", \"artists\": [], \"url\": \"https://127.0.0.1/x\"}]},"
+            "{\"provider\": \"tiktok\", \"tracks\": []}],"
+            "\"collections\": {\"popular\": {\"checked\": \"c\", \"tracks\": []}, \"trending\": {\"checked\": \"c\", \"tracks\": []}}"
+            "}"
+        )).object());
+        // Empty shelves are left out.
+        QCOMPARE(music.shelves().size(), 2);
+        QCOMPARE(music.tracks().size(), 1); // the bad Spotify id is dropped
+        QCOMPARE(music.tracks().first().toMap().value("url").toString(),
+                 QStringLiteral("https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"));
+        music.setShelf(QStringLiteral("chart-youtube"));
+        QCOMPARE(music.tracks().size(), 1); // a loopback link is not a source
+        const QVariantMap song = music.tracks().first().toMap();
+        QCOMPARE(song.value("artists").toString(), QStringLiteral("A, B"));
+        QCOMPARE(song.value("cover").toString(), QString()); // http artwork is not loaded
+        QVERIFY(music.shelves().at(1).toMap().value("stale").toBool());
+        music.setShelf(QStringLiteral("all-time"));
+        music.setQuery(QStringLiteral("weeknd"));
+        QCOMPARE(music.tracks().size(), 1);
+        music.setQuery(QStringLiteral("nothing like this"));
+        QCOMPARE(music.tracks().size(), 0);
+        QVERIFY(!music.roomTakesTracks());
     }
 
     void playerStaysOffWithoutHelperOrSource()

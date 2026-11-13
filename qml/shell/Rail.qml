@@ -20,6 +20,7 @@ Glass {
         { name: "home", icon: "home", label: I18n.s.navHome },
         { name: "rooms", icon: "rooms", label: I18n.s.navRooms },
         { name: "fandoms", icon: "fandoms", label: I18n.s.navFandoms },
+        { name: "music", icon: "music", label: I18n.s.navMusic },
         { name: "library", icon: "library", label: I18n.s.navLibrary },
         { name: "friends", icon: "friends", label: I18n.s.navFriends }
     ]

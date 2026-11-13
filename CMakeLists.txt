@@ -72,6 +72,7 @@ qt_add_library(katsodi_core STATIC
   src/presentation/ScreenController.h src/presentation/ScreenController.cpp
   src/presentation/BrowserController.h src/presentation/BrowserController.cpp
   src/presentation/PeopleController.h src/presentation/PeopleController.cpp
+  src/presentation/MusicController.h src/presentation/MusicController.cpp
   src/platform/ShareSources.h src/platform/ShareSources.cpp
   src/platform/ProcessAudio.h src/platform/ProcessAudio.cpp
   src/media/ShareAudioPlayer.h src/media/ShareAudioPlayer.cpp
@@ -174,6 +175,7 @@ qt_add_qml_module(katsodi
     qml/screens/FandomScreen.qml
     qml/screens/FriendsScreen.qml
     qml/screens/ProfileScreen.qml
+    qml/screens/MusicScreen.qml
     qml/screens/VoicePanel.qml
     qml/screens/FandomsScreen.qml
     qml/screens/LibraryScreen.qml

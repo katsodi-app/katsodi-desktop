@@ -15,6 +15,7 @@
 #include "presentation/PlayerController.h"
 #include "presentation/BrowserController.h"
 #include "presentation/PeopleController.h"
+#include "presentation/MusicController.h"
 #include "presentation/ScreenController.h"
 #include "app/PosterImageProvider.h"
 #include "presentation/SearchModel.h"
@@ -160,6 +161,7 @@ int main(int argc, char *argv[])
     ScreenController screen(&api, &room, &preferences, &screenEngine, &browser);
     SearchModel search(&rooms, &fandoms);
     PeopleController people(&api);
+    MusicController music(&api, &room);
     LocalLibrary library(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
                          + QStringLiteral("/library.sqlite"));
     Links links;
@@ -183,6 +185,7 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Demo", &screen);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Browser", &browser);
     qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "People", &people);
+    qmlRegisterSingletonInstance("Katsodi.App", 1, 0, "Music", &music);
     qmlRegisterUncreatableType<ChatModel>("Katsodi.App", 1, 0, "ChatModel", QStringLiteral("owned by Room"));
 
     QQmlApplicationEngine engine;
