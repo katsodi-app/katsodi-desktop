@@ -1,0 +1,15 @@
+Katsodi desktop: third-party components shipped with the application
+
+Qt 6.11.3 (The Qt Company), dynamically linked, LGPL-3.0 (open-source edition).
+  Source: https://download.qt.io/official_releases/qt/6.11/
+
+FFmpeg 7.1.5, built and shipped by Qt Multimedia as avcodec, avformat,
+avutil, swscale and swresample DLLs, dynamically linked, LGPL-2.1-or-later
+(FFmpeg-LGPL-2.1.txt). Used for screen and window capture.
+  Source: https://ffmpeg.org/releases/
+
+LiveKit C++ SDK 1.13.1, Apache-2.0 (LiveKit-SDK-LICENSE.txt).
+Microsoft Edge WebView2 SDK loader (static), WebView2-SDK-LICENSE.txt;
+  the WebView2 runtime is part of Windows and not redistributed.
+Fonts: Manrope, Oswald, Caveat, SIL Open Font License 1.1 (*-OFL.txt).
+Artwork: see CREDITS.txt.
